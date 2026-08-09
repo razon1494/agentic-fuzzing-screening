@@ -1,0 +1,26 @@
+# Build artifacts
+build/
+*.o
+*.a
+*.so
+
+# The pinned target library is fetched by the build script at a known commit,
+# not vendored, so the checkout itself stays out of the repo.
+targets/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Secrets: the agentic loop reads ANTHROPIC_API_KEY from here.
+.env
+
+# Hypothesis's example database is machine-local state, not a deliverable.
+# Minimized reproducers are committed explicitly under crashes/ instead.
+.hypothesis/
+
+# OneDrive noise
+desktop.ini
+Thumbs.db
