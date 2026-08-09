@@ -1,0 +1,17 @@
+# This repo is authored on Windows but built exclusively on Linux (WSL/Docker).
+# A shell script checked out with CRLF fails with "bad interpreter: ^M", so the
+# build would break for anyone cloning it. Pin everything the build touches to
+# LF regardless of platform.
+* text=auto eol=lf
+
+*.sh        text eol=lf
+*.c         text eol=lf
+*.h         text eol=lf
+*.py        text eol=lf
+*.g4        text eol=lf
+Dockerfile  text eol=lf
+Makefile    text eol=lf
+
+# Crash reproducers are exact bytes. Any normalization would corrupt them.
+crashes/**  binary
+*.bin       binary
