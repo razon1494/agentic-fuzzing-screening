@@ -38,9 +38,14 @@ PRICING_USD_PER_MTOK = {
 BUDGET_USD = 5.00
 """Hard spend ceiling from the assignment's Constraints section."""
 
-MAX_TOKENS = 16000
-"""Enough for a few hundred lines of strategy plus adaptive thinking. This is a
-cap, not a spend -- unused tokens cost nothing."""
+MAX_TOKENS = 64000
+"""Ceiling on thinking *plus* the returned module -- the two share this budget.
+
+Set high on purpose. A truncated response is not a degraded response: the JSON
+stops mid-string and the whole iteration is lost, having already been billed.
+16000 was tried first and was not enough once adaptive thinking was included.
+This is a cap rather than a spend, so unused headroom costs nothing.
+"""
 
 # The LLM returns this shape rather than a fenced code block. Parsing a fence
 # means regexing model prose, which fails the first time the model wraps its
@@ -175,6 +180,15 @@ class StrategyAuthor:
 
         if message.stop_reason == "refusal":
             raise RuntimeError(f"model declined: {message.stop_details}")
+
+        # Check this before parsing. A truncated response is still valid-looking
+        # text, so json.loads() reports "unterminated string" -- which reads like
+        # a parser bug rather than what it is, an exhausted token budget.
+        if message.stop_reason == "max_tokens":
+            raise RuntimeError(
+                f"response truncated at max_tokens={self.max_tokens}; the module "
+                "was cut off mid-JSON. Raise MAX_TOKENS."
+            )
 
         usage = Usage(
             model=self.model,
