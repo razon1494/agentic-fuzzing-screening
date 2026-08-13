@@ -16,7 +16,7 @@ The assignment asks for one target. This repo has two:
 | Target | Library | Grammar | Status |
 |---|---|---|---|
 | **json-parson** | [kgabis/parson](https://github.com/kgabis/parson) @ `ba29f4e` | grammars-v4 `json/JSON.g4` | Original submission — 0 crashes in 2,500 inputs |
-| **toml-tomlc99** | [cktan/tomlc99](https://github.com/cktan/tomlc99) @ `29076df` | grammars-v4 `toml/{TomlParser,TomlLexer}.g4` | Added second — see below |
+| **toml-tomlc99** | [cktan/tomlc99](https://github.com/cktan/tomlc99) @ `29076df` | grammars-v4 `toml/{TomlParser,TomlLexer}.g4` | Added second — found a real stack-overflow bug |
 
 `json-parson` was chosen first because the assignment's own Constraints section reports a trial run of
 this exercise on parson/JSON, calibrating its difficulty to the 5-iteration budget. It found no
@@ -38,15 +38,17 @@ Deliverables 1–6, per target:
 | 2 | Build script + harness | **done** — [`target/json-parson/`](target/json-parson/), 19/19 samples | **done** — [`target/toml-tomlc99/`](target/toml-tomlc99/), 18/18 samples |
 | 3 | Baseline strategy + pipeline demo | **done** — `run_baseline.py` (target-independent, validated against `spine_check/`) ||
 | 4 | Agentic loop + final generator + iteration log | **done** — [`strategies/json-parson/`](strategies/json-parson/) + [`logs/json-parson/`](logs/json-parson/) | **done** — [`strategies/toml-tomlc99/`](strategies/toml-tomlc99/) + [`logs/toml-tomlc99/`](logs/toml-tomlc99/) |
-| 5 | Deduplicated, minimized crash reports | **done** — none found, [`crashes/json-parson/NONE_FOUND.md`](crashes/json-parson/NONE_FOUND.md) | **done** — [`crashes/toml-tomlc99/`](crashes/toml-tomlc99/) |
+| 5 | Deduplicated, minimized crash reports | **done** — none found, [`crashes/json-parson/NONE_FOUND.md`](crashes/json-parson/NONE_FOUND.md) | **done** — 4 signatures / 1 confirmed bug, [`crashes/toml-tomlc99/`](crashes/toml-tomlc99/) |
 | 6 | Two-page report | **done** — [`report/report.md`](report/report.md) | **done** — [`report/report-toml-tomlc99.md`](report/report-toml-tomlc99.md) (bonus, supplementary) |
 
 **json-parson run:** 5 iterations, 2,500 inputs, 0 crashes, $0.8584 of the $5.00 budget. Depth moved
 8 → 2052 across the run (iteration 2 diagnosed its own instrumentation bug from the depth histogram
 alone) and acceptance held at 40–59%. Full analysis: [`report/report.md`](report/report.md).
 
-**toml-tomlc99 run:** see [`report/report-toml-tomlc99.md`](report/report-toml-tomlc99.md) for the full
-writeup and [`logs/toml-tomlc99/`](logs/toml-tomlc99/) for the iteration-by-iteration evolution.
+**toml-tomlc99 run:** 5 iterations, 2,500 inputs, **4 crash signatures / 1 confirmed root cause**
+(`AddressSanitizer: stack-overflow` — unbounded recursion in tomlc99's array and inline-table parsing,
+no depth cap), $2.76 of the $5.00 budget. All four reproducers re-verified standalone. Full analysis,
+including why 4 signatures collapse to 1 real bug: [`report/report-toml-tomlc99.md`](report/report-toml-tomlc99.md).
 
 ## Architecture
 
