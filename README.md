@@ -22,9 +22,13 @@ parson/JSON, which calibrates the target's difficulty to the 5-iteration budget.
 | 1 | Grammar source + adaptations | **done** — [`grammar/`](grammar/): `JSON.g4` pinned, 12 measured accept/reject gaps in [`ADAPTATIONS.md`](grammar/ADAPTATIONS.md) |
 | 2 | Build script + harness | **done** — [`target/`](target/): sanitizer build verified, 19/19 samples classified correctly |
 | 3 | Baseline strategy + pipeline demo | **done** — `run_baseline.py`, validated against `spine_check/` |
-| 4 | Agentic loop + final generator + iteration log | **built** — [`fuzzer/agent/`](fuzzer/agent/), wiring verified offline; not yet run (needs an API key) |
-| 5 | Deduplicated, minimized crash reports | **built** — triage + verified capture in `run_agentic_loop.py`; runs with step 4 |
-| 6 | Two-page report | not started — needs the loop's results |
+| 4 | Agentic loop + final generator + iteration log | **done** — [`fuzzer/agent/`](fuzzer/agent/); 5 iterations run, [`strategies/`](strategies/) + [`logs/`](logs/) |
+| 5 | Deduplicated, minimized crash reports | **done** — none found; documented in [`crashes/NONE_FOUND.md`](crashes/NONE_FOUND.md) |
+| 6 | Two-page report | **done** — [`report/report.md`](report/report.md) |
+
+**Run summary:** 5 iterations, 2,500 inputs, 0 crashes, $0.8584 of the $5.00 budget.
+Depth moved 8 → 2052 and acceptance held at 40–59% across the run; the evolution is in
+[`logs/`](logs/) and the analysis in [the report](report/report.md).
 
 ## Architecture
 
