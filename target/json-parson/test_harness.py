@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Step 2 checkpoint: the harness classifies known-good and known-bad JSON.
 
-Run from the repository root, after ./target/build.sh:
+Run from the repository root, after ./target/json-parson/build.sh:
 
-    python3 target/test_harness.py
+    python3 target/json-parson/test_harness.py
 
 Every sample under samples/valid/ must parse, every sample under samples/invalid/
 must be rejected *cleanly* -- exit 1, no sanitizer output, no signal. A sample
@@ -20,14 +20,15 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+HERE = Path(__file__).resolve().parent
+REPO_ROOT = HERE.parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from fuzzer.outcomes import Outcome  # noqa: E402
 from fuzzer.runner import HarnessRunner  # noqa: E402
 
-HARNESS = REPO_ROOT / "target" / "build" / "parson_harness"
-SAMPLES = REPO_ROOT / "target" / "samples"
+HARNESS = HERE / "build" / "parson_harness"
+SAMPLES = HERE / "samples"
 
 EXPECTATIONS = (
     (SAMPLES / "valid", Outcome.ACCEPT),

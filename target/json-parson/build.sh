@@ -29,7 +29,7 @@ PARSON_REPO="https://github.com/kgabis/parson.git"
 PARSON_COMMIT="ba29f4eda9ea7703a9f6a9cf2b0532a2605723c3"
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${HERE}/.." && pwd)"
+REPO_ROOT="$(cd "${HERE}/../.." && pwd)"
 SRC="${REPO_ROOT}/targets/parson"
 OUT="${HERE}/build"
 

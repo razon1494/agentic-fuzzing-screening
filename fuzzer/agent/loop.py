@@ -41,12 +41,8 @@ from hypothesis.errors import NonInteractiveExampleWarning
 from ..campaign import CampaignResult, minimize_all, run_campaign
 from ..runner import HarnessRunner
 from .client import BudgetExhausted, StrategyAuthor
-from .prompts import (
-    STRATEGY_MODULE_NAME,
-    build_system_blocks,
-    refine_prompt,
-    seed_prompt,
-)
+from .prompts import build_system_blocks, refine_prompt, seed_prompt
+from .targets import TargetConfig
 
 MAX_ITERATIONS = 5
 """Iteration cap from the assignment's Constraints section."""
@@ -61,23 +57,6 @@ Small on purpose: this is a smoke test for "did the model emit something that
 draws at all", not a statistical claim. The real quality signal is the
 acceptance rate over the full run.
 """
-
-EXPECTED_PRODUCTIONS = frozenset(
-    {
-        # Parser rules from JSON.g4, plus the three keyword literals `value`
-        # can expand to. The generator is asked to use these exact names, so an
-        # absence here is a real gap rather than a naming mismatch.
-        "value",
-        "obj",
-        "pair",
-        "arr",
-        "STRING",
-        "NUMBER",
-        "true",
-        "false",
-        "null",
-    }
-)
 
 
 @dataclass
@@ -122,6 +101,7 @@ class StrategyLoadError(RuntimeError):
 def run_loop(
     runner: HarnessRunner,
     author: StrategyAuthor,
+    target: TargetConfig,
     strategies_dir: Path,
     logs_dir: Path,
     max_iterations: int = MAX_ITERATIONS,
@@ -131,7 +111,7 @@ def run_loop(
     strategies_dir.mkdir(parents=True, exist_ok=True)
     logs_dir.mkdir(parents=True, exist_ok=True)
 
-    system_blocks = build_system_blocks()
+    system_blocks = build_system_blocks(target)
     outcome = LoopResult()
     current_code = ""
     feedback = ""
@@ -159,7 +139,7 @@ def run_loop(
         print(f"\n=== iteration {index} === {proposal.usage.summary()}")
 
         try:
-            strategy = _load_strategy(strategy_path)
+            strategy = _load_strategy(strategy_path, target.strategy_entry_name)
             _validate_generator(strategy)
         except StrategyLoadError as broken:
             # A broken module is not a dead end -- it is feedback. Hand the model
@@ -175,7 +155,7 @@ def run_loop(
         result = run_campaign(strategy, runner, max_examples=max_examples)
         minimize_all(strategy, runner, result, max_examples=max_examples)
         iteration.result = result
-        feedback = summarize_for_llm(result)
+        feedback = summarize_for_llm(result, target)
 
         outcome.iterations.append(iteration)
         _write_log(logs_dir, iteration, feedback)
@@ -186,15 +166,15 @@ def run_loop(
     return outcome
 
 
-def summarize_for_llm(result: CampaignResult) -> str:
+def summarize_for_llm(result: CampaignResult, target: TargetConfig) -> str:
     """The compact digest the model refines against -- the loop's steering signal.
 
     Deliberately small. Everything here is something the model can act on; raw
     per-input logs would cost tokens on every iteration and tell it nothing it
     could not infer from the aggregate.
     """
-    missing = sorted(EXPECTED_PRODUCTIONS - result.productions_seen)
-    unexpected = sorted(result.productions_seen - EXPECTED_PRODUCTIONS)
+    missing = sorted(target.expected_productions - result.productions_seen)
+    unexpected = sorted(result.productions_seen - target.expected_productions)
 
     lines = [
         result.summary(),
@@ -274,7 +254,7 @@ def _load_failure_feedback(broken: StrategyLoadError) -> str:
     )
 
 
-def _load_strategy(path: Path) -> st.SearchStrategy[str]:
+def _load_strategy(path: Path, entry_name: str) -> st.SearchStrategy[str]:
     """Import the generated module and pull out its entry point."""
     spec = importlib.util.spec_from_file_location(f"generated_{path.stem}", path)
     if spec is None or spec.loader is None:
@@ -286,10 +266,10 @@ def _load_strategy(path: Path) -> st.SearchStrategy[str]:
     except Exception:
         raise StrategyLoadError(traceback.format_exc(limit=6)) from None
 
-    entry = getattr(module, STRATEGY_MODULE_NAME, None)
+    entry = getattr(module, entry_name, None)
     if entry is None:
         raise StrategyLoadError(
-            f"module defines no {STRATEGY_MODULE_NAME}(); "
+            f"module defines no {entry_name}(); "
             f"found: {sorted(n for n in vars(module) if not n.startswith('_'))}"
         )
 
@@ -297,12 +277,12 @@ def _load_strategy(path: Path) -> st.SearchStrategy[str]:
         strategy = entry()
     except Exception:
         raise StrategyLoadError(
-            f"{STRATEGY_MODULE_NAME}() raised:\n{traceback.format_exc(limit=6)}"
+            f"{entry_name}() raised:\n{traceback.format_exc(limit=6)}"
         ) from None
 
     if not isinstance(strategy, st.SearchStrategy):
         raise StrategyLoadError(
-            f"{STRATEGY_MODULE_NAME}() returned {type(strategy).__name__}, "
+            f"{entry_name}() returned {type(strategy).__name__}, "
             "expected a Hypothesis SearchStrategy"
         )
     return strategy

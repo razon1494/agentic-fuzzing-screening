@@ -1,40 +1,37 @@
 """What the LLM is told. This file *is* the "drive an LLM from a grammar" part.
 
-Three deliberate choices, each with a reason the report can defend:
+Parameterized by TargetConfig (targets.py) rather than hardcoded to one format,
+so the same prompt machinery drives both json-parson and toml-tomlc99 -- and any
+future target -- with zero duplication.
 
-1. The grammar goes in whole, not summarized. It is 77 lines -- small enough to
-   paste, and summarizing it would silently drop productions, which is exactly
-   the failure the assignment warns about.
+Three deliberate choices carry over to every target, each with a reason the
+report can defend:
+
+1. The grammar goes in whole, not summarized. Summarizing risks silently
+   dropping productions, which is exactly the failure the assignment warns about.
 2. The measured grammar/reality gaps go in alongside it. Without them the model
-   optimizes for the formal grammar and wastes examples on inputs parson always
-   rejects (duplicate keys, lone surrogates) while never reaching the code paths
-   past the grammar that parson does accept (trailing commas, trailing garbage).
+   optimizes for the formal grammar and wastes examples on inputs the library
+   always rejects, while never reaching the code paths past the grammar that it
+   does accept.
 3. Stable content is a cached system prefix; per-iteration feedback is the user
-   turn. The grammar is byte-identical across all five iterations, so keeping it
-   ahead of the cache breakpoint makes iterations 2-5 read it at a tenth price.
+   turn. The grammar is byte-identical across all iterations, so keeping it
+   ahead of the cache breakpoint makes iterations after the first read it at a
+   tenth of the price.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
+from .targets import TargetConfig
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-GRAMMAR_PATH = REPO_ROOT / "grammar" / "JSON.g4"
-ADAPTATIONS_PATH = REPO_ROOT / "grammar" / "ADAPTATIONS.md"
-
-STRATEGY_MODULE_NAME = "json_document"
-"""The callable the generated module must expose. The loop imports this by name,
-so it is part of the contract rather than a convention."""
-
-_CONTRACT = f'''\
-Write a Python module that generates strings in the language of the JSON grammar
-above, for fuzzing the parson C library with Hypothesis.
+_CONTRACT_TEMPLATE = '''\
+Write a Python module that generates strings in the language of the {format_name}
+grammar above, for fuzzing the {library_name} C library with Hypothesis.
 
 ## Hard requirements
 
 The module must define exactly this entry point:
 
-    def {STRATEGY_MODULE_NAME}() -> SearchStrategy[str]
+    def {entry_name}() -> SearchStrategy[str]
 
 It may define any number of helper strategies. It must be a complete, runnable
 module: every import at the top, no ellipses, no "..." placeholders, no prose
@@ -55,76 +52,84 @@ the loop reads back which productions fired and how deep recursion went.
 Wrap every recursive production in the context manager, which also tracks depth:
 
     @st.composite
-    def json_array(draw):
-        with production("arr"):
-            items = draw(st.lists(json_value(), max_size=4))
-            return "[" + ",".join(items) + "]"
+    def some_container(draw):
+        with production("<grammar rule name>"):
+            ...
 
 Mark every terminal production with the plain recorder:
 
-    record_production("NUMBER")
+    record_production("<grammar rule name>")
 
-Use the grammar's own rule names ("obj", "pair", "arr", "value", "STRING",
-"NUMBER") so the coverage report lines up with the grammar the reader has in
-front of them. A strategy that skips this reports zero coverage and the loop
-cannot steer -- treat it as a correctness requirement, not a nicety.
+Use the grammar's own rule names ({production_list}) so the coverage report
+lines up with the grammar the reader has in front of them. A strategy that skips
+this reports zero coverage and the loop cannot steer -- treat it as a
+correctness requirement, not a nicety.
 
 ## Recursion
 
-Express the grammar's mutual recursion (`value -> obj | arr -> value`) with
-`st.recursive` or `st.deferred` plus `@composite`. Do not flatten it to a fixed
-nesting depth: a generator that claims to be recursive but always emits depth-1
-documents is a specific failure this exercise is checking for.
+Express the grammar's recursive structure with `st.recursive` or `st.deferred`
+plus `@composite`. Do not flatten it to a fixed nesting depth: a generator that
+claims to be recursive but always emits shallow documents is a specific failure
+this exercise is checking for.
 
 ## Coverage of the format
 
-Reach the edges as well as the middle: empty containers, deep nesting, duplicate
-keys, extreme and malformed numbers, unicode and escape sequences, and
-near-valid-but-malformed documents. Weight them so the parser still accepts a
-healthy fraction -- a generator rejected at the front door on 99% of inputs is
-not testing the parser, it is testing the tokenizer.
+Reach the edges as well as the middle: empty containers, deep nesting, extreme
+and malformed values, escape sequences, and near-valid-but-malformed documents.
+Weight them so the parser still accepts a healthy fraction -- a generator
+rejected at the front door on 99% of inputs is not testing the parser, it is
+testing the tokenizer.
 '''
 
 
-def build_system_blocks() -> list[dict]:
+def build_system_blocks(target: TargetConfig) -> list[dict]:
     """Stable prefix: role, grammar, measured gaps, output contract.
 
     Returned as a list of blocks with a cache breakpoint on the last one. This
     content does not vary across iterations, so every iteration after the first
     reads it from cache instead of paying full input price for the grammar.
     """
-    grammar = GRAMMAR_PATH.read_text(encoding="utf-8")
-    adaptations = ADAPTATIONS_PATH.read_text(encoding="utf-8")
+    grammar_sections = "\n\n".join(
+        f"```antlr\n# {gf.label}\n{gf.path.read_text(encoding='utf-8')}\n```"
+        for gf in target.grammar_files
+    )
+    adaptations = target.adaptations_path.read_text(encoding="utf-8")
+    production_list = ", ".join(f'"{p}"' for p in sorted(target.expected_productions))
+
+    contract = _CONTRACT_TEMPLATE.format(
+        format_name=target.format_name,
+        library_name=target.library_name,
+        entry_name=target.strategy_entry_name,
+        production_list=production_list,
+    )
 
     body = f"""\
-You are writing Hypothesis strategies that generate test inputs for a C JSON
+You are writing Hypothesis strategies that generate test inputs for a C {target.format_name}
 parser. You are precise about grammars and you write complete, runnable code.
 
-# The formal grammar (ANTLR grammars-v4, json/JSON.g4, commit e1c222f)
+# The formal grammar (ANTLR grammars-v4, commit {target.grammar_commit})
 
-```antlr
-{grammar}
-```
+{grammar_sections}
 
 # How the target actually behaves
 
-The target is parson (kgabis/parson) at commit ba29f4e, reached through
-`json_parse_string`. Its real accepted language differs from the grammar above
-in both directions. These differences were measured against the sanitizer build,
-not inferred, and they are where the interesting code paths are.
+The target is {target.library_name} at commit {target.library_commit}, reached
+through `{target.entry_point}`. Its real accepted language differs from the
+grammar above in both directions. These differences were measured against the
+sanitizer build, not inferred, and they are where the interesting code paths are.
 
 {adaptations}
 
 # Your task
 
-{_CONTRACT}"""
+{contract}"""
 
     return [
         {
             "type": "text",
             "text": body,
             # Everything above is identical on every iteration. The breakpoint
-            # here is what makes iterations 2-5 cheap.
+            # here is what makes later iterations cheap.
             "cache_control": {"type": "ephemeral"},
         }
     ]

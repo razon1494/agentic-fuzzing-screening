@@ -1,14 +1,12 @@
 # grammar/
 
-Step 1 deliverable — done.
+Step 1 deliverable, per target. One subdirectory per fuzzing target:
 
-- [`JSON.g4`](JSON.g4) — grammars-v4's JSON grammar, fetched verbatim at a pinned commit.
-- [`SOURCE.md`](SOURCE.md) — provenance: upstream commit, retrieval command, and why this grammar and
-  this target were chosen.
-- [`ADAPTATIONS.md`](ADAPTATIONS.md) — the gap between the formal grammar and parson's real accepted
-  language. Twelve differences in both directions, each measured against the sanitizer build rather
-  than inferred from reading parser source, plus the exact nesting wall found by bisection.
+- [`json-parson/`](json-parson/) — JSON grammar, parson target. Original submission.
+- [`toml-tomlc99/`](toml-tomlc99/) — TOML grammar, tomlc99 target. Added as a second target after the
+  JSON run found no crashes; see its `ADAPTATIONS.md` for a real stack-overflow bug found during
+  probing.
 
-The last file is the one that matters for the agentic loop: it is what the seed prompt uses to tell
-the LLM where the interesting code paths are (parson's superset) and where examples would be wasted
-(its subset).
+Each subdirectory follows the same shape: the grammar file(s) fetched verbatim at a pinned commit,
+`SOURCE.md` for provenance, and `ADAPTATIONS.md` for the measured gap between the formal grammar and
+the target library's real accepted language — the input the agentic loop's seed prompt is built from.

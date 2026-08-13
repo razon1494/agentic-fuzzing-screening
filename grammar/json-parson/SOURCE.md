@@ -12,7 +12,7 @@ Fetched verbatim, unmodified:
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/antlr/grammars-v4/e1c222f3f0e7c1b2fec799e94e34fc388b03f887/json/JSON.g4 \
-  -o grammar/JSON.g4
+  -o grammar/json-parson/JSON.g4
 ```
 
 ## Why this grammar
@@ -34,7 +34,7 @@ flatten — flattening it is the specific failure mode the assignment calls out.
 | Library | [kgabis/parson](https://github.com/kgabis/parson) |
 | Pinned commit | `ba29f4eda9ea7703a9f6a9cf2b0532a2605723c3` |
 | Entry point | `json_parse_string(const char *)` — returns `NULL` on parse failure |
-| Fetched by | [`target/build.sh`](../target/build.sh) into gitignored `targets/` |
+| Fetched by | [`target/json-parson/build.sh`](../../target/json-parson/build.sh) into gitignored `targets/` |
 
 Chosen from the assignment's list because its own Constraints section reports a
 trial run of this exercise on parson/JSON, which makes it the target whose

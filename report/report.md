@@ -26,7 +26,7 @@ would silently drop productions. But the grammar describes *JSON*, and the targe
 is *parson*, and those are not the same language. Rather than infer the
 difference from parser source, I measured it: 33 boundary inputs plus a bisection
 run against the sanitizer build, yielding twelve documented differences
-(`grammar/ADAPTATIONS.md`).
+(`grammar/json-parson/ADAPTATIONS.md`).
 
 parson is a **superset** in places the grammar forbids — it accepts a single
 trailing comma (`{"a":1,}`), ignores anything after the first value (`{} trailing`,
