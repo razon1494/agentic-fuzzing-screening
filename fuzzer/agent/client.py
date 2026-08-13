@@ -16,15 +16,16 @@ from pathlib import Path
 
 import anthropic
 
-MODEL = "claude-opus-5"
+MODEL = "claude-sonnet-5"
 """Which model authors the strategy.
 
-Opus is the default because this is the task the assignment actually grades --
-reading a grammar and writing a correct recursive generator is the hard part,
-and a weaker author wastes iterations rather than dollars. The assignment's own
-budget note assumes "small/mid-tier model pricing", so if 5 iterations threaten
-the $5 cap, switch to `claude-sonnet-5` here: nothing else in the loop changes,
-and the cost ledger below reports whichever was used.
+The assignment's budget note assumes "small/mid-tier model pricing" for the
+5-iteration loop, and Sonnet fits that at roughly a third of Opus's per-token
+cost while still reading a 77-line grammar and writing a correct recursive
+generator reliably. If a run's strategies come back weak (flat recursion,
+missed productions) despite clear feedback, switch to `claude-opus-5` here --
+nothing else in the loop changes, and the cost ledger below reports whichever
+model was actually used.
 """
 
 PRICING_USD_PER_MTOK = {
