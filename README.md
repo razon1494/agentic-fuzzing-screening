@@ -1,4 +1,4 @@
-# Agentic Fuzzing — target TBD
+# Agentic Fuzzing — parson (JSON)
 
 Grammar-seeded, LLM-refined fuzzer built for [Prof. Marcelo D'Amorim's](https://github.com/damorim)
 NC State PhD screening assignment. Full spec: [assignment_agentic_fuzzing.md](assignment_agentic_fuzzing.md).
@@ -9,18 +9,21 @@ language, run the strategy through a sanitizer-instrumented C harness, and feed 
 the LLM for up to 5 rounds of refinement. No coverage instrumentation on the target is allowed, so the
 steering signal has to come from somewhere else — see [Design decisions](#design-decisions).
 
-## Status
+## Target
 
-Target library not yet assigned by Prof. D'Amorim. Steps 1–2 and the LLM half of step 4 are blocked on
-that; everything target-independent is built and validated against a toy parser in the meantime.
+[kgabis/parson](https://github.com/kgabis/parson) (JSON), pinned at `ba29f4e`. Chosen from the
+assignment's list because its Constraints section reports a trial run of this exercise on
+parson/JSON, which calibrates the target's difficulty to the 5-iteration budget.
+
+## Status
 
 | # | Deliverable | Status |
 |---|---|---|
-| 1 | Grammar source + adaptations | blocked — needs assigned library |
-| 2 | Build script + harness | blocked — needs assigned library |
-| 3 | Baseline strategy + pipeline demo | done — `run_baseline.py`, validated against `spine_check/` |
+| 1 | Grammar source + adaptations | **done** — [`grammar/`](grammar/): `JSON.g4` pinned, 12 measured accept/reject gaps in [`ADAPTATIONS.md`](grammar/ADAPTATIONS.md) |
+| 2 | Build script + harness | **done** — [`target/`](target/): sanitizer build verified, 19/19 samples classified correctly |
+| 3 | Baseline strategy + pipeline demo | **done** — `run_baseline.py`, validated against `spine_check/` |
 | 4 | Agentic loop + final generator + iteration log | spine done (`fuzzer/campaign.py`, `fuzzer/coverage.py`); LLM client/prompts not started |
-| 5 | Deduplicated, minimized crash reports | machinery done (`fuzzer/triage.py`); nothing to run it against yet |
+| 5 | Deduplicated, minimized crash reports | machinery done (`fuzzer/triage.py`); no campaign run against parson yet |
 | 6 | Two-page report | not started |
 
 ## Architecture
@@ -73,11 +76,14 @@ python3 spine_check/test_spine.py      # expect 6/6 pass
 
 # Step 3: baseline strategy + full pipeline demonstration
 python3 run_baseline.py
+
+# Steps 1-2: fetch parson at its pinned commit, build with sanitizers, verify
+./target/build.sh
+python3 target/test_harness.py         # expect 19/19 classified correctly
 ```
 
-Once the target is assigned: `target/build.sh` will clone the pinned commit and build it with
-`target/harness.c`; `run_agentic_loop.py` (not written yet) will run the 5-iteration
-seed → run → summarize → refine loop against it, logging each round to `logs/`.
+Still to come: `run_agentic_loop.py` runs the 5-iteration seed → run → summarize → refine loop against
+the parson harness, writing each round to `logs/` and `strategies/`.
 
 ## Repo layout
 
@@ -87,15 +93,16 @@ seed → run → summarize → refine loop against it, logging each round to `lo
 ├── requirements.txt
 ├── .env.example                   ANTHROPIC_API_KEY template — copy to .env, never commit .env
 │
-├── grammar/                       Step 1 — blocked on target assignment
-│   ├── <format>.g4                    vendored grammars-v4 grammar
-│   ├── SOURCE.md                      upstream repo + commit pinned
-│   └── ADAPTATIONS.md                 documented gaps: library subset/superset of the grammar
+├── grammar/                       Step 1 — done
+│   ├── JSON.g4                        grammars-v4 JSON grammar, pinned at e1c222f
+│   ├── SOURCE.md                      provenance: upstream commit, why this grammar/target
+│   └── ADAPTATIONS.md                 measured accept/reject gaps, and what they imply for the generator
 │
-├── target/                        Step 2 — blocked on target assignment
-│   ├── build.sh                       clones pinned commit, builds lib + harness with sanitizers
-│   ├── harness.c                      C driver: stdin -> library parse entrypoint
-│   └── samples/                       hand-picked valid/invalid inputs, Step 2 demo
+├── target/                        Step 2 — done
+│   ├── build.sh                       fetches parson at ba29f4e, builds lib + harness with sanitizers
+│   ├── harness.c                      C driver: stdin -> json_parse_string, exit-code contract
+│   ├── test_harness.py                Step 2 checkpoint: 19 samples, accept vs reject
+│   └── samples/{valid,invalid}/       corpus encoding parson's real accepted language
 │
 ├── fuzzer/                        target-independent spine — done
 │   ├── outcomes.py

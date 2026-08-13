@@ -1,13 +1,25 @@
 # target/
 
-Step 2 deliverable. Blocked on the target library assignment.
+Step 2 deliverable — done. Target: [parson](https://github.com/kgabis/parson) at pinned commit
+`ba29f4eda9ea7703a9f6a9cf2b0532a2605723c3`.
 
-Once assigned:
+- [`build.sh`](build.sh) — clones parson into gitignored `targets/` (fetched, never vendored), verifies
+  the checkout really is at the pinned commit, and compiles it with `harness.c` under
+  `-fsanitize=address,undefined -fno-sanitize-recover=all`. Each flag's rationale is in the header
+  comment.
+- [`harness.c`](harness.c) — reads stdin, calls `json_parse_string`, exits per the contract in
+  `fuzzer/outcomes.py`: 0 accept, 1 well-formed reject, 2 harness error, anything else a bug.
+- [`test_harness.py`](test_harness.py) — the checkpoint. 19 samples, all classified correctly.
+- `samples/valid/` — inputs parson accepts, including four `ext_*` files that the formal grammar
+  rejects but parson takes anyway. `samples/invalid/` — inputs it rejects cleanly. The split encodes
+  parson's *measured* language, not the spec's; see [`../grammar/ADAPTATIONS.md`](../grammar/ADAPTATIONS.md).
 
-- `build.sh` — clones the library at its pinned commit (never latest upstream) into `targets/`
-  (gitignored — fetched, not vendored) and compiles library + `harness.c` with
-  `-fsanitize=address,undefined -fno-sanitize-recover=all`, mirroring `spine_check/build_toy.sh`.
-- `harness.c` — C driver: reads stdin, calls the library's parse entrypoint, follows the exit-code
-  contract in `fuzzer/outcomes.py` (0 = accept, 1 = well-formed reject, anything else = bug).
-- `samples/` — a handful of valid and invalid inputs used to demonstrate the harness behaves correctly
-  before the fuzzing loop runs (Step 2's "before moving on" checkpoint).
+## Verify
+
+```bash
+./target/build.sh && python3 target/test_harness.py
+```
+
+Sanitizers confirmed live in the build (`libasan.so.8` and `libubsan.so.1` both linked, 24
+instrumentation symbols) — a build where the flags were silently dropped would report clean runs
+forever, so this is checked rather than assumed.

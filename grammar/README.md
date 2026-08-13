@@ -1,12 +1,14 @@
 # grammar/
 
-Step 1 deliverable. Blocked on the target library assignment.
+Step 1 deliverable — done.
 
-Once assigned:
+- [`JSON.g4`](JSON.g4) — grammars-v4's JSON grammar, fetched verbatim at a pinned commit.
+- [`SOURCE.md`](SOURCE.md) — provenance: upstream commit, retrieval command, and why this grammar and
+  this target were chosen.
+- [`ADAPTATIONS.md`](ADAPTATIONS.md) — the gap between the formal grammar and parson's real accepted
+  language. Twelve differences in both directions, each measured against the sanitizer build rather
+  than inferred from reading parser source, plus the exact nesting wall found by bisection.
 
-- `<format>.g4` — vendored copy of the matching grammar from
-  [antlr/grammars-v4](https://github.com/antlr/grammars-v4), pinned to the commit noted in `SOURCE.md`.
-- `SOURCE.md` — upstream repo path and commit hash for the grammar file above.
-- `ADAPTATIONS.md` — documented gaps between the formal grammar and what the library actually accepts
-  (subset it doesn't support, superset it tolerates informally). This is graded, so every gap needs a
-  concrete example input, not just a description.
+The last file is the one that matters for the agentic loop: it is what the seed prompt uses to tell
+the LLM where the interesting code paths are (parson's superset) and where examples would be wasted
+(its subset).
