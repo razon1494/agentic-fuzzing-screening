@@ -1,0 +1,2 @@
+hypothesis>=6.100
+anthropic>=0.34  # Step 4 agentic loop — not yet imported anywhere, pinned ahead of use
