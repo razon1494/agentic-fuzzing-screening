@@ -22,9 +22,9 @@ parson/JSON, which calibrates the target's difficulty to the 5-iteration budget.
 | 1 | Grammar source + adaptations | **done** — [`grammar/`](grammar/): `JSON.g4` pinned, 12 measured accept/reject gaps in [`ADAPTATIONS.md`](grammar/ADAPTATIONS.md) |
 | 2 | Build script + harness | **done** — [`target/`](target/): sanitizer build verified, 19/19 samples classified correctly |
 | 3 | Baseline strategy + pipeline demo | **done** — `run_baseline.py`, validated against `spine_check/` |
-| 4 | Agentic loop + final generator + iteration log | spine done (`fuzzer/campaign.py`, `fuzzer/coverage.py`); LLM client/prompts not started |
-| 5 | Deduplicated, minimized crash reports | machinery done (`fuzzer/triage.py`); no campaign run against parson yet |
-| 6 | Two-page report | not started |
+| 4 | Agentic loop + final generator + iteration log | **built** — [`fuzzer/agent/`](fuzzer/agent/), wiring verified offline; not yet run (needs an API key) |
+| 5 | Deduplicated, minimized crash reports | **built** — triage + verified capture in `run_agentic_loop.py`; runs with step 4 |
+| 6 | Two-page report | not started — needs the loop's results |
 
 ## Architecture
 
@@ -82,8 +82,15 @@ python3 run_baseline.py
 python3 target/test_harness.py         # expect 19/19 classified correctly
 ```
 
-Still to come: `run_agentic_loop.py` runs the 5-iteration seed → run → summarize → refine loop against
-the parson harness, writing each round to `logs/` and `strategies/`.
+```bash
+# Steps 4-5: the agentic loop, then crash triage. Needs ANTHROPIC_API_KEY
+# (export it, or copy .env.example to .env). Spends real money — up to $5.
+python3 run_agentic_loop.py
+```
+
+Each iteration writes its strategy to `strategies/iteration_N.py` and its rationale, changes, and
+measured results to `logs/iteration_N.md`. The winning iteration is copied to `strategies/final.py`,
+and every unique crash gets a verified `crashes/<signature_id>/` directory.
 
 ## Repo layout
 
@@ -110,19 +117,19 @@ the parson harness, writing each round to `logs/` and `strategies/`.
 │   ├── triage.py
 │   ├── coverage.py
 │   ├── campaign.py
-│   └── agent/                         Step 4 LLM loop — not started
-│       ├── prompts.py                     seed + refine prompt templates
-│       ├── client.py                      Anthropic API wrapper, cost/token logging
-│       └── loop.py                        5-iteration orchestration
+│   └── agent/                         Step 4 LLM loop — built
+│       ├── prompts.py                     grammar + measured gaps in, strategy contract out
+│       ├── client.py                      Anthropic call, budget enforcement, cost ledger
+│       └── loop.py                        seed → validate → run → summarize → refine
 │
-├── strategies/                    generated Hypothesis strategies, one file per iteration — pending
+├── strategies/                    generated Hypothesis strategies, one file per iteration — pending run
 ├── spine_check/                   toy target validating the spine before the real target — done
 │   ├── toy_parser.c
 │   ├── build_toy.sh
 │   └── test_spine.py
 │
 ├── run_baseline.py                Step 3 — naive strategy, pipeline demonstration — done
-├── run_agentic_loop.py            Step 4 entrypoint — pending
+├── run_agentic_loop.py            Steps 4-5 entrypoint — loop, then verified crash triage
 │
 ├── logs/                          per-iteration CampaignResult summaries — pending
 ├── crashes/                       Step 5 — deduplicated, minimized reproducers — pending
