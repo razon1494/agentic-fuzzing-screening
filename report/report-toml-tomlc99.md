@@ -19,7 +19,7 @@ parson's explicit `MAX_NESTING 2048` — and confirmed a stack overflow at depth
 boundary sitting somewhere in the 23,000–27,000 range depending on shape and process-to-process jitter
 (`grammar/toml-tomlc99/ADAPTATIONS.md`). The agentic loop, seeded with that finding, independently
 generated inputs that reached the same class of crash through its own deep-nesting strategies —
-confirming the hand-probe wasn't a one-off and that the loop's depth signal genuinely steers toward it.
+confirming the hand-probe wasn't a one-off and that the loop's depth signal really does steer toward it.
 
 ### Four signatures, one bug
 
@@ -35,9 +35,9 @@ parse_array -> parse_array -> parse_array -> ... (array nesting)
 parse_inline_table -> parse_keyval -> parse_inline_table -> ... (inline-table nesting)
 ```
 
-This is exactly the dedup failure mode flagged as untested in the primary report's Challenges section
+This is the dedup failure mode flagged as untested in the primary report's Challenges section
 — "none of this ran on a real crash — it is validated only against the toy target." Now it has, and
-top-N-frame hashing genuinely over-counts for a stack-overflow class of bug: the crash site is
+top-N-frame hashing actually over-counts for a stack-overflow class of bug: the crash site is
 determined by scheduler/allocator timing, not by the root cause, so four samples of the same overflow
 can legitimately hash to four different signatures. Iteration 3's own refinement reasoning caught this
 independently — *"unique_crash_signatures rose from 3 to 4, and it's the same stack-overflow bug
@@ -54,7 +54,7 @@ each). This is a direct consequence of the boundary instability documented in `A
 the exact crashing depth shifts by roughly ±1,000 between process invocations, Hypothesis's shrinker
 tries a smaller candidate, it doesn't crash on that particular run, and the shrinker correctly declines
 to report a reproducer it couldn't re-trigger — keeping the original large input instead of a false
-minimization. This is the shrinker behaving correctly under a genuinely flaky target, not a defect in
+minimization. This is the shrinker behaving correctly under a target that's actually flaky, not a defect in
 `campaign.minimize`.
 
 ### Evolution
@@ -71,7 +71,7 @@ Iteration 0's 6.2% acceptance is the clean version of the failure mode the loop 
 generator that puts an uncapped-depth nested draw inside *every* ordinary document, so ~40% of
 otherwise-valid documents got dragged down by one runaway field. Iteration 1 diagnosed this from the
 number alone and isolated deep nesting into its own single-line strategy — acceptance jumped to 43%
-in one round. From there the loop did exactly what it's supposed to: iteration 2 found the crash family
+in one round. From there the loop did what it's supposed to: iteration 2 found the crash family
 and immediately reduced deep-stress weight rather than escalating it further; iterations 3–4 spent the
 remaining budget on acceptance rate and byte-level string content, per the target-specific guidance in
 `ADAPTATIONS.md` that tomlc99's numeric handling is comprehensive and not worth the budget JSON's
@@ -79,7 +79,7 @@ generator spent there.
 
 ## Challenges specific to this target
 
-- **A genuinely flaky crash boundary makes "found the bug" a probabilistic statement**, not a
+- **A crash boundary that's flaky by nature makes "found the bug" a probabilistic statement**, not a
   deterministic one, in a way the JSON target never was. parson's wall was exact to the input every
   time; tomlc99's crash depends on process-to-process stack layout. The pipeline handles this
   correctly (verify-before-report, minimizer declines to over-claim), but it means "at depth X" is not

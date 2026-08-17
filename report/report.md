@@ -54,7 +54,7 @@ as a clean parse. Everything else — a fatal signal, or a sanitizer report on
 stderr — is a bug.
 
 That contract has a trap in it. AddressSanitizer's *default* exit code is 1,
-which is exactly the rejection code, so a straightforward build files every
+which is the same as the rejection code, so a straightforward build files every
 memory-safety bug as "the parser politely said no." The runner therefore forces
 `ASAN_OPTIONS=abort_on_error=1`, turning sanitizer findings into SIGABRT, and the
 build uses `-fno-sanitize-recover=all` so a pure UB report aborts instead of
