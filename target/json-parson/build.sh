@@ -1,27 +1,20 @@
 #!/usr/bin/env bash
 # Fetches parson at its pinned commit and builds it with the fuzzing harness.
 #
-# The library is fetched, never vendored: targets/ is gitignored, so a clone of
-# this repo reproduces the exact build from the pin below rather than trusting a
-# copy that may have drifted.
+# Fetched into targets/ (gitignored), never vendored, so a fresh clone always
+# builds from the exact pin below.
 #
-# Sanitizer flags, and why each one is load-bearing:
-#
-#   -fsanitize=address,undefined   the whole point: catch memory-safety and UB
-#                                  that a normal build silently tolerates.
-#   -fno-sanitize-recover=all      make UBSan ABORT instead of print-and-continue.
-#                                  Without it a pure UB bug prints "runtime
-#                                  error:" and still exits 0, and the fuzzer
-#                                  scores a real bug as a clean parse.
-#   -fno-omit-frame-pointer        keep stack traces walkable, so triage.py can
-#                                  take a stable top-3-frame signature.
-#   -g                             symbolize frames; without it every signature
-#                                  degrades to a library+offset and dedup blurs.
-#   -O1                            what the ASan docs recommend: enough
-#                                  optimization to be representative, not so
-#                                  much that inlining destroys the stack trace.
-#                                  (spine_check/ uses -O0 because its bugs are
-#                                  planted and -O1 would optimize them away.)
+# Flags:
+#   -fsanitize=address,undefined   catch memory-safety and UB
+#   -fno-sanitize-recover=all      UBSan aborts instead of print-and-continue
+#                                  (otherwise a bug prints "runtime error:"
+#                                  and still exits 0, so it scores as clean)
+#   -fno-omit-frame-pointer        keep stack traces walkable for triage.py
+#   -g                             symbolize frames, or dedup blurs
+#   -O1                            ASan's recommended level -- representative
+#                                  without inlining away the stack trace
+#                                  (spine_check/ uses -O0 since its bugs are
+#                                  planted and -O1 would optimize them away)
 set -euo pipefail
 
 # Pinned per the assignment: "Do not build against the latest upstream version."
@@ -42,8 +35,8 @@ fetch_target() {
 
     git -C "${SRC}" checkout --quiet "${PARSON_COMMIT}"
 
-    # Guard against a stale or hand-edited checkout silently changing what is
-    # under test. Every crash we report is only meaningful against this commit.
+    # Every crash we report only means something against this exact commit --
+    # catch a stale or hand-edited checkout before it silently changes that.
     local actual
     actual="$(git -C "${SRC}" rev-parse HEAD)"
     if [[ "${actual}" != "${PARSON_COMMIT}" ]]; then

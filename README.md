@@ -63,33 +63,25 @@ campaign.py    survey pass (sees every crash, not just the first) + shrink pass 
 agent/         LLM loop: prompts, Anthropic client, seed -> validate -> run -> summarize -> refine
 ```
 
-**Nothing above changed to add the second target.** `fuzzer/agent/targets.py` is the one file that
-knows what's different between `json-parson` and `toml-tomlc99` — grammar files, library name, entry
-point, expected productions — and `prompts.py`/`loop.py` are parameterized by it rather than hardcoded.
-Swapping or adding a target means one new `TargetConfig`, one grammar directory, and one harness;
-`fuzzer/` itself is untouched.
+**None of that changed to add the second target.** `fuzzer/agent/targets.py` is the only file that
+knows what's different between `json-parson` and `toml-tomlc99`; `prompts.py`/`loop.py` take a
+TargetConfig instead of hardcoding one. Adding a target is one new config, one grammar dir, one harness.
 
 ## Design decisions
 
-- **Crash vs. rejection.** A parser saying "invalid input" is correct behavior; a sanitizer abort or
-  fatal signal is a bug. `ASAN_OPTIONS=abort_on_error=1` is mandatory — ASan's default exit code (1)
-  collides with our reject code, so without it every memory bug would be silently filed as a clean
-  rejection. See `fuzzer/runner.py`.
-- **Proxy signal.** The assignment bans instrumenting the *target*, not the *generator*. Each
-  `@st.composite` strategy declares which grammar production it's currently expanding
-  (`fuzzer/coverage.py`), giving two free, fully-blackbox signals: which productions have fired, and how
-  deep recursion actually went. Paired with acceptance rate (parser-accepted / total), that's the full
-  steering signal fed back to the LLM each iteration — acceptance rate says whether the generator is
-  clearing the front door, production coverage says what part of the grammar is still unexercised. This
-  signal is exactly what found the TOML stack-overflow's *shape*: depth is the one thing the signal
-  measures that a coverage tool doesn't need to.
-- **Dedup.** Top-3 symbolized stack frames, sanitizer runtime frames and libc stripped, addresses/line
-  numbers/bare integers normalized out before hashing. See `fuzzer/triage.py` for the full rationale
-  behind each normalization choice and its failure mode.
-- **Survey and minimize are separate Hypothesis passes.** A single `@given` test asserting "no crash"
-  stops at the first failure — at most one bug per campaign. `campaign.run_campaign` runs
-  `Phase.generate` only so nothing stops early; `campaign.minimize` then runs once per unique signature
-  with a targeted assertion so the shrinker actually engages. See `fuzzer/campaign.py`.
+- **Crash vs. rejection.** "Invalid input" is the parser working correctly; a sanitizer abort or fatal
+  signal is a bug. `ASAN_OPTIONS=abort_on_error=1` is mandatory — ASan's default exit code (1) collides
+  with our reject code, so without it every memory bug gets filed as a clean rejection. See `fuzzer/runner.py`.
+- **Proxy signal.** The ban is on instrumenting the *target*, not the *generator*. Each `@st.composite`
+  strategy declares which grammar production it's expanding (`fuzzer/coverage.py`) — free, blackbox
+  signal for which productions fired and how deep recursion went. Paired with acceptance rate, that's
+  the steering signal each iteration. It's also what caught the TOML stack-overflow's shape: depth is
+  the one thing this measures that coverage wouldn't need to.
+- **Dedup.** Top-3 symbolized stack frames, sanitizer/libc frames stripped, addresses and bare integers
+  normalized out before hashing. Full rationale and known failure modes in `fuzzer/triage.py`.
+- **Survey and minimize are separate Hypothesis passes.** A single `@given` asserting "no crash" stops
+  at the first failure. `campaign.run_campaign` runs `Phase.generate` only so nothing stops early;
+  `campaign.minimize` runs once per signature so the shrinker actually engages. See `fuzzer/campaign.py`.
 
 ## Quickstart
 

@@ -1,10 +1,7 @@
 #!/usr/bin/env bash
 # Fetches tomlc99 at its pinned commit and builds it with the fuzzing harness.
-#
-# Structurally identical to target/json-parson/build.sh -- see that file for
-# the full rationale on each sanitizer flag. The library is fetched, never
-# vendored: targets/ is gitignored, so a clone of this repo reproduces the
-# exact build from the pin below.
+# Same shape as target/json-parson/build.sh -- see that one for the flag
+# rationale. Fetched into targets/ (gitignored), never vendored.
 set -euo pipefail
 
 # Pinned per the assignment: "Do not build against the latest upstream version."
