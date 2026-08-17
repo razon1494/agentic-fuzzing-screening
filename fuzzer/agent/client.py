@@ -1,10 +1,7 @@
-"""The Anthropic call, and the token/cost ledger the final report has to show.
+"""Anthropic API call, plus the token/cost ledger the report needs.
 
-The assignment caps the loop at "5 iterations or roughly $5 of LLM API spend,
-whichever comes first" and asks for both numbers in the report. That makes the
-ledger a deliverable rather than instrumentation, so it lives here rather than
-being bolted on: every call updates a running total, and the budget is enforced
-*before* a request is sent, not discovered afterwards.
+Budget gets checked before each call, not after -- the assignment caps this
+around $5, and finding out you blew the budget after the fact isn't useful.
 """
 
 from __future__ import annotations
@@ -17,16 +14,10 @@ from pathlib import Path
 import anthropic
 
 MODEL = "claude-sonnet-5"
-"""Which model authors the strategy.
-
-The assignment's budget note assumes "small/mid-tier model pricing" for the
-5-iteration loop, and Sonnet fits that at roughly a third of Opus's per-token
-cost while still reading a 77-line grammar and writing a correct recursive
-generator reliably. If a run's strategies come back weak (flat recursion,
-missed productions) despite clear feedback, switch to `claude-opus-5` here --
-nothing else in the loop changes, and the cost ledger below reports whichever
-model was actually used.
-"""
+"""Sonnet keeps the 5-iteration loop comfortably under the $5 budget -- roughly
+a third of Opus's per-token cost. Swap in claude-opus-5 here if strategies come
+back weak (flat recursion, missed productions) despite clear feedback; nothing
+else needs to change."""
 
 PRICING_USD_PER_MTOK = {
     # (input, output). Cache writes bill at 1.25x input, cache reads at 0.1x.
@@ -39,18 +30,12 @@ BUDGET_USD = 5.00
 """Hard spend ceiling from the assignment's Constraints section."""
 
 MAX_TOKENS = 64000
-"""Ceiling on thinking *plus* the returned module -- the two share this budget.
+"""Thinking and the returned module share this budget. 16000 wasn't enough --
+the response got truncated mid-JSON and the whole iteration was wasted (and
+already billed). This is a ceiling, not a spend, so extra headroom is free."""
 
-Set high on purpose. A truncated response is not a degraded response: the JSON
-stops mid-string and the whole iteration is lost, having already been billed.
-16000 was tried first and was not enough once adaptive thinking was included.
-This is a cap rather than a spend, so unused headroom costs nothing.
-"""
-
-# The LLM returns this shape rather than a fenced code block. Parsing a fence
-# means regexing model prose, which fails the first time the model wraps its
-# answer differently; a schema makes malformed output a 400 from the API instead
-# of a mystery `None` three stack frames later.
+# Structured output instead of a fenced code block -- regexing markdown out of
+# model prose breaks the first time it wraps the answer differently.
 _PROPOSAL_SCHEMA = {
     "type": "object",
     "properties": {
@@ -155,19 +140,17 @@ class StrategyAuthor:
     def propose(self, system_blocks: list[dict], user_text: str) -> Proposal:
         """One round trip: grammar (+ feedback) in, strategy code out.
 
-        `system_blocks` carries the grammar and adaptations with a cache
-        breakpoint on the last block -- that content is byte-identical across all
-        five iterations, so every iteration after the first reads it at a tenth
-        of the input price. The per-iteration feedback goes in `user_text`,
-        *after* the breakpoint, which is what keeps the prefix stable.
+        system_blocks carries the cached grammar/adaptations prefix; the
+        per-iteration feedback goes in user_text, after the cache breakpoint,
+        so the prefix stays stable across iterations.
         """
         if self.spent_usd >= self.budget_usd:
             raise BudgetExhausted(
                 f"spent ${self.spent_usd:.2f} of ${self.budget_usd:.2f} budget"
             )
 
-        # Streaming, because a long strategy at a high max_tokens can otherwise
-        # sit past the SDK's HTTP timeout with nothing on the wire.
+        # Stream -- a long strategy at this max_tokens can sit past the SDK's
+        # HTTP timeout otherwise.
         with self._client.messages.stream(
             model=self.model,
             max_tokens=self.max_tokens,
@@ -181,9 +164,8 @@ class StrategyAuthor:
         if message.stop_reason == "refusal":
             raise RuntimeError(f"model declined: {message.stop_details}")
 
-        # Check this before parsing. A truncated response is still valid-looking
-        # text, so json.loads() reports "unterminated string" -- which reads like
-        # a parser bug rather than what it is, an exhausted token budget.
+        # Check before parsing -- otherwise a truncated response fails with
+        # "unterminated string", which looks like a parser bug, not a token cap.
         if message.stop_reason == "max_tokens":
             raise RuntimeError(
                 f"response truncated at max_tokens={self.max_tokens}; the module "
@@ -220,11 +202,8 @@ class StrategyAuthor:
 
 
 def _first_text(message: anthropic.types.Message) -> str:
-    """The schema guarantees one text block of valid JSON; find it explicitly.
-
-    Indexing content[0] would break the moment a thinking block leads the list,
-    which it does whenever adaptive thinking fires.
-    """
+    """Find the text block explicitly -- content[0] breaks the moment a thinking
+    block leads the list, which happens whenever adaptive thinking fires."""
     for block in message.content:
         if block.type == "text":
             return block.text
@@ -232,11 +211,10 @@ def _first_text(message: anthropic.types.Message) -> str:
 
 
 def _load_api_key() -> str:
-    """Read the key from the environment, falling back to the gitignored .env.
+    """Read the key from the environment, or the gitignored .env as a fallback.
 
-    Kept out of every log line and every prompt on purpose -- the loop writes
-    prompts and responses to logs/, and a key pasted into one would be committed
-    the moment someone adds the log to the repo.
+    Never logged -- the loop writes prompts/responses to logs/, and a key in
+    one of those gets committed the moment someone adds the log to the repo.
     """
     if key := os.environ.get("ANTHROPIC_API_KEY"):
         return key

@@ -1,22 +1,13 @@
-"""What the LLM is told. This file *is* the "drive an LLM from a grammar" part.
+"""Builds the prompt sent to the LLM: grammar in, strategy contract out.
 
-Parameterized by TargetConfig (targets.py) rather than hardcoded to one format,
-so the same prompt machinery drives both json-parson and toml-tomlc99 -- and any
-future target -- with zero duplication.
+Parameterized by TargetConfig so the same code drives json-parson and
+toml-tomlc99 without duplicating anything.
 
-Three deliberate choices carry over to every target, each with a reason the
-report can defend:
-
-1. The grammar goes in whole, not summarized. Summarizing risks silently
-   dropping productions, which is exactly the failure the assignment warns about.
-2. The measured grammar/reality gaps go in alongside it. Without them the model
-   optimizes for the formal grammar and wastes examples on inputs the library
-   always rejects, while never reaching the code paths past the grammar that it
-   does accept.
-3. Stable content is a cached system prefix; per-iteration feedback is the user
-   turn. The grammar is byte-identical across all iterations, so keeping it
-   ahead of the cache breakpoint makes iterations after the first read it at a
-   tenth of the price.
+The grammar goes in whole rather than summarized -- summarizing risks silently
+dropping a production. The measured grammar/reality gaps go in right beside it,
+or the model wastes examples on inputs the library always rejects. And the
+grammar sits ahead of a cache breakpoint, since it's identical across
+iterations and there's no reason to pay full price for it more than once.
 """
 
 from __future__ import annotations

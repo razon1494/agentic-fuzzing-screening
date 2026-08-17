@@ -1,18 +1,14 @@
 /* Fuzzing harness for parson (JSON), pinned commit ba29f4e.
  *
- * Reads one input from stdin, hands it to the library's parse entry point, and
- * exits with a code the Python side can classify. The exit contract is mirrored
- * in fuzzer/outcomes.py and must not drift from it:
+ * Reads stdin, hands it to the library's parse entry point, exits with a code
+ * the Python side can classify. Must match fuzzer/outcomes.py:
  *
  *     0  accept          json_parse_string returned a value
- *     1  reject          json_parse_string returned NULL -- a well-formed
- *                        "this is not valid JSON". NOT a bug.
- *     2  harness error   the harness itself failed (allocation). Not the
- *                        library's fault; surfaces as HARNESS_ERROR so a broken
- *                        harness can never masquerade as a clean parse.
+ *     1  reject          returned NULL -- a well-formed "not valid JSON",
+ *                        not a bug
+ *     2  harness error   the harness itself failed (allocation), not parson
  *
- * Anything else -- a fatal signal or a sanitizer abort -- is a bug in parson,
- * which is the entire point of the exercise.
+ * Anything else -- a fatal signal or sanitizer abort -- is a real bug.
  */
 
 #include <stdio.h>

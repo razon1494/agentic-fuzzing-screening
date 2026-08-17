@@ -1,10 +1,8 @@
-"""Per-target configuration: what makes json-parson and toml-tomlc99 different.
+"""Per-target config -- the one file that knows what differs between targets.
 
-Everything in fuzzer/ above this file -- outcomes, runner, triage, coverage,
-campaign, and the agentic loop itself -- is target-independent by construction.
-This module is the one place that says which grammar, which library, and which
-directories a run uses. Adding a third target means adding one more TargetConfig
-here; nothing else in the loop changes.
+Everything else in fuzzer/ (outcomes, runner, triage, coverage, campaign, the
+loop itself) is target-independent. Adding a third target just means one more
+TargetConfig here.
 """
 
 from __future__ import annotations

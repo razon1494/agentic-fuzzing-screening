@@ -1,7 +1,7 @@
 """Executes the sanitizer-built C harness against one generated input.
 
-This is deliberately target-independent: point it at any harness binary that
-follows the exit-code contract in :mod:`fuzzer.outcomes` and it works.
+Target-independent: point it at any harness binary that follows the
+exit-code contract in :mod:`fuzzer.outcomes` and it works.
 """
 
 from __future__ import annotations

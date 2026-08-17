@@ -1,29 +1,15 @@
 """The agentic loop: seed -> validate -> run -> summarize -> refine, under budget.
 
-This is where the assignment's central question gets answered. There is no
-coverage signal, so something else has to tell the loop whether the generator is
-getting better. The signal used here has three parts, and the loop optimizes for
-all three at once:
+No coverage signal allowed, so the loop steers on three things instead:
+acceptance rate (is the parser even looking at these inputs), production
+coverage (which grammar rules actually fired), and nesting depth (did the
+recursion actually recurse, or just look like it did). Crash signatures found
+so far get carried forward too, so the model isn't re-finding the same bug
+every round.
 
-  acceptance rate       is the parser even looking at these inputs? Near zero and
-                        nothing past the tokenizer is under test; near one and
-                        the error paths never run.
-  production coverage   which grammar rules has the generator actually emitted?
-                        Unexercised productions are grammar that is provably
-                        untested, and pointing the model at them is the most
-                        direct lever available.
-  nesting depth         did the recursion actually recurse? A generator can
-                        satisfy every other check and still emit only flat
-                        documents, which is the specific failure the assignment
-                        warns about.
-
-Crash signatures found so far ride along, so the model steers away from bugs
-already banked instead of re-finding them.
-
-A note on running model-authored code: each iteration writes a Python module and
-imports it. The code comes from our own API call on our own machine, which is the
-design the assignment specifies, but it is still unreviewed code executing with
-full privileges -- worth knowing before pointing this at anything that matters.
+One thing worth flagging: each iteration writes a Python module and imports
+it, so this runs unreviewed model-generated code locally. Fine here, not
+something to point at anything that matters.
 """
 
 from __future__ import annotations
@@ -142,9 +128,8 @@ def run_loop(
             strategy = _load_strategy(strategy_path, target.strategy_entry_name)
             _validate_generator(strategy)
         except StrategyLoadError as broken:
-            # A broken module is not a dead end -- it is feedback. Hand the model
-            # its own traceback and let the next iteration repair it, rather than
-            # aborting a run that still has budget left.
+            # Feed the traceback back as feedback instead of aborting a run
+            # that still has budget left.
             iteration.load_error = str(broken)
             feedback = _load_failure_feedback(broken)
             outcome.iterations.append(iteration)
@@ -167,12 +152,9 @@ def run_loop(
 
 
 def summarize_for_llm(result: CampaignResult, target: TargetConfig) -> str:
-    """The compact digest the model refines against -- the loop's steering signal.
-
-    Deliberately small. Everything here is something the model can act on; raw
-    per-input logs would cost tokens on every iteration and tell it nothing it
-    could not infer from the aggregate.
-    """
+    """Compact digest the model refines against. Kept small -- raw per-input
+    logs would just cost tokens without telling it anything the aggregate
+    doesn't already say."""
     missing = sorted(target.expected_productions - result.productions_seen)
     unexpected = sorted(result.productions_seen - target.expected_productions)
 
@@ -289,13 +271,10 @@ def _load_strategy(path: Path, entry_name: str) -> st.SearchStrategy[str]:
 
 
 def _validate_generator(strategy: st.SearchStrategy[str]) -> None:
-    """Step 4.2: cheap sanity check before spending a full run on this strategy.
-
-    Catches the degenerate cases -- draws that raise, non-string output, a
-    generator stuck on one constant -- for the price of a dozen examples. It
-    deliberately does *not* judge quality; that is the acceptance rate's job,
-    and it needs the real parser to measure.
-    """
+    """Cheap sanity check before spending a full run on this strategy: draws
+    that raise, non-string output, a generator stuck on one constant. Not
+    judging quality here -- that's acceptance rate's job, and it needs the
+    real parser to measure."""
     samples: list[str] = []
     with warnings.catch_warnings():
         # .example() warns because it is the wrong tool inside a test. Here we

@@ -7,13 +7,12 @@
 Requires the target's ./target/<slug>/build.sh to have been run, and
 ANTHROPIC_API_KEY to be set (export it, or put it in .env -- see .env.example).
 
-Steps 4 and 5 are one entrypoint on purpose. Triage needs the campaign's crash
-records, and those only exist in memory while the loop is running; splitting the
-two would mean serializing every crash to disk and reading it back for no gain.
+Steps 4 and 5 share an entrypoint since triage needs the campaign's crash
+records, which only exist in memory while the loop is running -- splitting
+these would mean serializing every crash to disk just to read it back.
 
-The target is a CLI argument, not a hardcoded path, because everything below
-this line -- the loop, the triage, the report structure -- is the same code for
-every target. Only fuzzer/agent/targets.py knows what's different between them.
+Target is a CLI arg, not a hardcoded path: everything below this line is the
+same code for every target, only fuzzer/agent/targets.py differs between them.
 """
 
 from __future__ import annotations
@@ -100,12 +99,11 @@ def _write_final_strategy(target: TargetConfig, best: Iteration) -> None:
 
 
 def _write_crashes(runner: HarnessRunner, target: TargetConfig, best: Iteration) -> int:
-    """Step 5: one directory per unique signature, verified before it is kept.
+    """One directory per unique signature, verified before it's kept.
 
-    Verification is the point of re-running here. A minimized input that does not
-    reproduce standalone is not a reproducer, and reporting one would waste the
-    reader's time -- so the re-run's verdict is recorded either way rather than
-    quietly assumed.
+    A minimized input that doesn't reproduce standalone isn't a real
+    reproducer, so the re-run's verdict gets recorded either way instead of
+    just assumed.
     """
     result = best.result
     if result is None or not result.crashes:

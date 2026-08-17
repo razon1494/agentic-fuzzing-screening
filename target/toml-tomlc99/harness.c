@@ -1,15 +1,14 @@
 /* Fuzzing harness for tomlc99 (TOML), pinned commit 29076df.
  *
- * Reads one input from stdin, hands it to the library's parse entry point, and
- * exits with a code the Python side can classify. Mirrors the contract in
- * target/json-parson/harness.c and fuzzer/outcomes.py:
+ * Same shape as target/json-parson/harness.c: read stdin, call the parse
+ * entry point, exit with a code the Python side can classify.
  *
  *     0  accept          toml_parse returned a non-NULL table
- *     1  reject          toml_parse returned NULL -- a well-formed
- *                        "this is not valid TOML". NOT a bug.
- *     2  harness error   the harness itself failed (allocation).
+ *     1  reject          returned NULL -- a well-formed "not valid TOML",
+ *                        not a bug
+ *     2  harness error   the harness itself failed (allocation)
  *
- * Anything else -- a fatal signal or a sanitizer abort -- is a bug in tomlc99.
+ * Anything else -- a fatal signal or sanitizer abort -- is a real bug.
  */
 
 #include <stdio.h>
