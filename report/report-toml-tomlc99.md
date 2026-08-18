@@ -1,10 +1,9 @@
 # Bonus target: tomlc99 (TOML)
 
-**This is a supplement to [`report.md`](report.md), which is the primary report.** It uses the same
-pipeline and the same `fuzzer/` code, with no changes needed to support this second target. The
-design details (how crashes are told apart from valid rejections, the proxy signal, the two-pass
-testing approach, how duplicate crashes are grouped) are the same as in the primary report and aren't
-repeated here.
+**This is the secondary report.** I tested a second target, TOML, using the same pipeline and the
+same `fuzzer/` code, with no changes needed to support it. The design details (how crashes are told
+apart from valid rejections, the proxy signal, the two-pass testing approach, how duplicate crashes
+are grouped) are the same as in the primary report and aren't repeated here.
 
 **Target:** [tomlc99](https://github.com/cktan/tomlc99) @ `29076df`. **Grammar:** grammars-v4
 `toml/{TomlParser,TomlLexer}.g4` @ `e1c222f`. **Result:** 5 iterations, 2,500 inputs, **4 crash

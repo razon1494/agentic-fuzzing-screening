@@ -7,47 +7,47 @@ of a $5 budget.
 ## The problem
 
 Fuzzing a parser is easy to do badly. Throw random bytes at a JSON library and nearly every input dies
-in the first few characters, so you test the tokenizer thousands of times and the real parser never.
-The fix is to generate inputs already shaped like the format, which is what a formal grammar gives
-you for free.
+in the first few characters, so the tokenizer gets tested thousands of times and the real parser
+almost never does. The usual fix is to generate inputs already shaped like the format, which is what
+a formal grammar gives you for free.
 
-This assignment adds a twist: don't write that generator yourself. Give an LLM the grammar, have it
-write a [Hypothesis](https://hypothesis.readthedocs.io/) strategy, run the output through a sanitizer
-build of the real C library, and feed the measurements back so it can revise. Five rounds, or five
-dollars, whichever runs out first. And you may not instrument the target for coverage, which is
-normally how you'd know whether a generator improved. So the real question isn't whether an LLM can
-write one, because it can, first try. It's what you show it on round two.
+In this assignment, I wasn't allowed to write that generator myself. An LLM had to read the grammar
+and write the [Hypothesis](https://hypothesis.readthedocs.io/) strategy. I'd run its output through a
+sanitizer build of the real C library and feed the measurements back so it could revise, for five
+rounds or five dollars, whichever ran out first. I also couldn't instrument the target for coverage,
+which is normally how you'd know if a generator got better. So my actual problem wasn't whether an
+LLM could write a grammar-based generator. It could, on the first try. It was what to show in round
+two.
 
 ## Design
 
-**Grammar and adaptations.** The 77-line JSON grammar goes into the prompt whole, since summarizing
+**Grammar and adaptations:** The 77-line JSON grammar goes into the prompt whole, since summarizing
 risks quietly dropping a production. But the grammar describes JSON in the abstract, not parson, and
 the gap between the two is where the real parsing code lives. Rather than guess, I measured it: 33
 boundary inputs plus a bisection against the sanitizer build (`grammar/json-parson/ADAPTATIONS.md`).
-parson accepts things the grammar forbids (a trailing comma, anything after the first value, a BOM,
-`1.`, raw invalid UTF-8 in strings) and rejects things it allows (duplicate keys, lone surrogates,
-exponents that overflow a double). It caps nesting at 2049 for arrays and 2048 for objects, and that
-one-level difference is real and repeatable. They go in beside the grammar, because a generator
-emitting only grammar-legal text never reaches the superset paths.
+parson accepts things the grammar forbids (a trailing comma, anything after the first value) and
+rejects things it allows (duplicate keys, lone surrogates, exponents that overflow a double). It caps
+nesting at 2049 for arrays and 2048 for objects. That one-level split isn't noise, it holds on every
+run. They go in beside the grammar, because a generator emitting only grammar-legal text never reaches
+the superset paths.
 
-**Harness and build.** The hardest thing to get right is what counts as a bug, because "invalid input"
+**Harness and build:** The hardest thing to get right is what counts as a bug, because "invalid input"
 is the parser working correctly. The harness reads stdin, calls `json_parse_string`, and exits 0 when
 a value comes back, 1 on a clean `NULL`, 2 if the harness itself fails. Anything else, a fatal signal
 or sanitizer abort, is a real bug. The build supplies the abort: ASan and UBSan with
 `-fno-sanitize-recover=all`, so undefined behavior stops the process instead of continuing quietly.
-One trap silently destroys the experiment: ASan's default exit code is 1,
-identical to the reject code, so without `ASAN_OPTIONS=abort_on_error=1` every memory bug gets filed
-as a polite rejection. Timeouts get 5 seconds and are triaged as crashes, since a parser that hangs is
-a denial-of-service bug, not a pass.
+One trap silently destroys the experiment: ASan's default exit code is 1, identical to the reject
+code, so without `ASAN_OPTIONS=abort_on_error=1` every memory bug gets filed as a polite rejection.
+Timeouts get 5 seconds and are triaged as crashes, since a parser that hangs is a denial-of-service
+bug, not a pass.
 
-**The loop and its signal.** Each round prompts the model, saves the module, sanity-checks a dozen
-examples to catch one that won't even import, runs 500 inputs through the harness, and hands
-the summary back. With coverage off the table, three measurements stand in: acceptance rate,
-production coverage (each strategy declares which grammar rule it's expanding), and nesting depth. I
-chose those three because they map onto the three ways a grammar-derived generator usually fails: it
-bounces off the tokenizer, it silently never reaches some rules, or its recursion is cosmetic and
-everything comes out flat. All three live in the generator, not the target, so they cost nothing
-and break no rules.
+**The loop and its signal:** Each round prompts the model, saves the module, sanity-checks a dozen
+examples to catch one that won't even import, runs 500 inputs through the harness, and hands the
+summary back. With coverage off the table, three measurements stand in: acceptance rate, production
+coverage (each strategy declares which grammar rule it's expanding), and nesting depth. I chose those
+three because they map onto the three ways a grammar-derived generator usually fails: it bounces off
+the tokenizer, it silently never reaches some rules, or its recursion is cosmetic and everything comes
+out flat. All three live in the generator, not the target, so they cost nothing and break no rules.
 
 ## Findings
 
@@ -63,22 +63,22 @@ deduplicated, and minimized correctly (`spine_check/`, 6/6).
 | 3 | 53.2% | 2051 | nested duplicate keys, block comments, more invalid UTF-8 |
 | 4 | 52.6% | 2052 | exact wall depths, alternating array/object nesting |
 
-The best moment is iteration 2. The round before shipped a probe aimed at 2,000+ levels of nesting,
-and the depth histogram came back topping out at 7. From that single number the model worked out that
-its `production()` call was wrapping the whole document instead of each level, rewrote it with an
-`ExitStack` entering one context per level, and depth jumped to 2051. That is exactly the "recursive
-generator that secretly flattens" failure the assignment warns about, caught by the signal instead of
-by luck.
+The interesting part is iteration 2. The round before shipped a probe aimed at 2,000+ levels of
+nesting, and the depth histogram came back topping out at 7. From that single number the model worked
+out that its `production()` call was wrapping the whole document instead of each level, rewrote it
+with an `ExitStack` entering one context per level, and depth jumped to 2051. That is exactly the
+"recursive generator that secretly flattens" failure the assignment warns about, caught by the
+signal.
 
-Now the uncomfortable part. The spec notes that a trial run of this exercise, on this same library,
-went from zero crashes to finding them reliably within five iterations. Mine didn't, and I think the
-signal is why. Depth was the most legible number I gave the model, it moved dramatically once fixed,
-and so three of five rounds went into pushing it further. But nesting depth is the one dimension
-parson explicitly defends, with a `MAX_NESTING 2048` guard that refuses cleanly instead of blowing the
-stack. The loop optimized hard toward a wall the author had already built. Meanwhile acceptance sat
-between 40% and 59% every round, my summary called that "healthy" every round, and a signal that keeps
-reporting "healthy" creates no pressure to change anything. The proxy worked as designed and steered
-somewhere safe.
+The assignment mentions that when this exact exercise was trialed on parson before, it took five
+iterations to go from finding nothing to finding crashes consistently. Mine found none, and I think
+the signal is why. Depth was the most legible number I gave the model, it moved dramatically once
+fixed, and so three of five rounds went into pushing it further. But nesting depth is the one
+dimension parson explicitly defends, with a `MAX_NESTING 2048` guard that refuses cleanly instead of
+blowing the stack. The loop optimized hard toward a wall the author had already built. Meanwhile
+acceptance sat between 40% and 59% every round, my summary called that "healthy" every round, and a
+signal that keeps reporting "healthy" creates no pressure to change anything. The proxy worked as
+designed.
 
 Still under-tested: the harness only calls `json_parse_string`, so `json_parse_file`, the
 `_with_comments` entry point, and the serialization path never ran. Raw invalid UTF-8 is the most
@@ -88,20 +88,22 @@ since the histogram clusters near the bottom and at the wall.
 
 ## Challenges
 
-The first live run died on a `JSONDecodeError` that read like a parsing bug and wasn't. `max_tokens`
-was too low, adaptive thinking plus a full strategy module blew past it, and the response arrived
-truncated mid-string. Raising the cap and checking `stop_reason` before parsing fixed it, at the cost of one
-wasted call.
+The first live run crashed with a `JSONDecodeError`. At first that looked like a bug in the parser,
+but it wasn't. The token limit I'd set was too low, and once adaptive thinking plus a full strategy
+module used up that budget, the response got cut off in the middle of a string. Raising the limit
+and checking the stop reason before trying to parse the response fixed it, though it cost one wasted
+API call to find.
 
-Three judgment calls worth stating outright. Deduplication hashes the top three symbolized frames
-after stripping addresses, libc noise, and bare integers, every choice documented in
-`fuzzer/triage.py`. It never ran against a real JSON crash here, since parson never crashed, but the
-same logic did get tested on a real crash in the companion TOML report, where it revealed a genuine
-weakness: it over-counts stack-overflow bugs, splitting one root cause into four signatures. Timeouts
-count as crashes and take the same triage path as a sanitizer abort, the right policy even though
-nothing came near tripping it. And the harness deliberately frees the input buffer before the parse
-tree, so a retained pointer into it would surface as a genuine use-after-free rather than being
-masked. Nothing tripped that either, a small positive signal about parson's lifetime handling.
+Three judgment calls are worth explaining. First, deduplication: I group crashes by hashing their top
+three stack frames, after stripping out addresses and library noise. That logic is documented in
+`fuzzer/triage.py`. It was never tested against a real JSON crash here, since parson never crashed,
+but the same method was tested on a real crash in the companion TOML report, where it revealed a real
+weakness: it over-counts stack-overflow bugs, splitting one root cause into four signatures. Second,
+timeouts: a hang counts as a crash, the same as a sanitizer abort. That's the right call, even though
+nothing here ever came close to timing out. Third, the harness frees the input buffer before touching
+the parse tree, on purpose. If parson ever kept a pointer into that freed memory, this would catch it
+as a real use-after-free instead of hiding it. Nothing tripped that check either, which is a small
+good sign for how parson manages memory.
 
 With more time I'd widen the harness past a single entry point and try differential testing against a
 second JSON parser: disagreement is a denser signal than crashing, and catches correctness bugs a
