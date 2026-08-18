@@ -95,12 +95,13 @@ wasted call.
 
 Three judgment calls worth stating outright. Deduplication hashes the top three symbolized frames
 after stripping addresses, libc noise, and bare integers, every choice documented in
-`fuzzer/triage.py`; it never ran against a real JSON crash, only the toy target, so I can't call it
-battle-tested. Timeouts count as crashes and take the same triage path as a sanitizer abort, the
-right policy even though nothing came near tripping it. And the harness deliberately
-frees the input buffer before the parse tree, so a retained pointer into it would surface as a genuine
-use-after-free rather than being masked. Nothing tripped that either, a small positive signal about
-parson's lifetime handling.
+`fuzzer/triage.py`. It never ran against a real JSON crash here, since parson never crashed, but the
+same logic did get tested on a real crash in the companion TOML report, where it revealed a genuine
+weakness: it over-counts stack-overflow bugs, splitting one root cause into four signatures. Timeouts
+count as crashes and take the same triage path as a sanitizer abort, the right policy even though
+nothing came near tripping it. And the harness deliberately frees the input buffer before the parse
+tree, so a retained pointer into it would surface as a genuine use-after-free rather than being
+masked. Nothing tripped that either, a small positive signal about parson's lifetime handling.
 
 With more time I'd widen the harness past a single entry point and try differential testing against a
 second JSON parser: disagreement is a denser signal than crashing, and catches correctness bugs a
