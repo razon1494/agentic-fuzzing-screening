@@ -1,111 +1,115 @@
 # Bonus target: tomlc99 (TOML)
 
-**Supplementary to [`report.md`](report.md), which is the primary submission.** Same pipeline, same
-`fuzzer/` spine, no code changes to support this target. The design rationale (crash-vs-rejection
-contract, the proxy signal, survey and shrink passes, dedup mechanics) is identical to the primary
-report and isn't repeated here.
+**This is a supplement to [`report.md`](report.md), which is the primary report.** It uses the same
+pipeline and the same `fuzzer/` code, with no changes needed to support this second target. The
+design details (how crashes are told apart from valid rejections, the proxy signal, the two-pass
+testing approach, how duplicate crashes are grouped) are the same as in the primary report and aren't
+repeated here.
 
 **Target:** [tomlc99](https://github.com/cktan/tomlc99) @ `29076df`. **Grammar:** grammars-v4
 `toml/{TomlParser,TomlLexer}.g4` @ `e1c222f`. **Result:** 5 iterations, 2,500 inputs, **4 crash
 signatures, 1 confirmed root cause**, $2.76 of a $5 budget.
 
-## Why a second target
+## Why I added a second target
 
-The JSON run found nothing, and a single negative result is hard to read. It could mean parson is
-solid, or it could mean my pipeline can't find bugs at all. Adding a second library answers two
-questions at once: is the spine actually target-independent, and does a less-hardened parser behave
-differently? Both answers came back yes. Nothing in `outcomes.py`, `runner.py`, `triage.py`,
-`coverage.py`, or `campaign.py` changed, and TOML produced a real bug.
+The JSON run found nothing, and a single negative result is hard to read on its own. It could mean
+parson is genuinely solid, or it could mean my pipeline just can't find bugs at all. Testing a second
+library answers both questions at once: does the same pipeline work without changes on a different
+target, and does a less-hardened parser behave differently? Both answers turned out to be yes. Nothing
+in `outcomes.py`, `runner.py`, `triage.py`, `coverage.py`, or `campaign.py` needed to change, and TOML
+produced a real bug.
 
 ## Findings
 
 ### A real bug, found twice
 
-Step 1 probing, before any agentic loop ran, turned up the important structural fact: `toml.c` has no
-nesting-depth cap at all. parson has an explicit `MAX_NESTING 2048` and refuses cleanly past it;
-tomlc99 just keeps recursing. A hand-built input at depth 50,000 overflows the stack, and the actual
-boundary sits somewhere between roughly 23,000 and 27,000 depending on the shape and on
-process-to-process jitter (`grammar/toml-tomlc99/ADAPTATIONS.md`).
+Before running the agentic loop, I tested the library by hand and found something important. `toml.c`
+has no limit on how deeply it will nest arrays or tables. parson, by contrast, has an explicit cap
+(`MAX_NESTING 2048`) and rejects anything past it cleanly. tomlc99 has no such check; it just keeps
+recursing until the program crashes.
 
-The loop was seeded with that finding, and then independently generated inputs that reached the same
-crash through its own deep-nesting strategies. That matters more than finding it by hand did, because
-it shows the depth signal genuinely steers toward the bug rather than just describing it after the
-fact.
+I built an input nested 50,000 levels deep, and it overflowed the stack. The exact point where it
+breaks isn't fixed. It falls somewhere between roughly 23,000 and 27,000, depending on the shape of
+the input and small differences between runs (`grammar/toml-tomlc99/ADAPTATIONS.md`).
+
+I gave the loop this finding as a starting point, and it went on to generate its own deeply nested
+inputs that hit the same crash on its own, using its own strategies. That's a stronger result than
+finding the bug by hand. It shows the depth signal actually leads the loop toward the bug, not just
+that the bug happened to exist.
 
 ### Four signatures, one bug
 
-The triage pipeline reported four unique crash signatures. Reading the actual stack traces, all four
-are `AddressSanitizer: stack-overflow`, and the frame identity differs only because of what happened
-to be executing when the guard page got hit: a `malloc` inside `expand`/`expand_arritem` during array
-growth, a `strnlen` inside `STRNDUP`/`normalize_key` during key duplication, or nothing captured at
-all (`<empty stack>`, where the unwinder itself ran out of stack). Underneath all four, the real call
-chain is thousands of frames of the same two functions recursing without a depth check:
+The triage pipeline reported four separate crash signatures. But reading the actual stack traces, all
+four are the same thing: `AddressSanitizer: stack-overflow`. They only look different because of what
+the program happened to be doing right when it ran out of stack space: allocating memory during array
+growth, duplicating a key, or in one case nothing at all, because the crash unwinder itself ran out of
+stack. Strip that away, and the real call chain underneath all four is thousands of frames of the same
+two functions calling themselves with no depth limit:
 
 ```
 parse_array -> parse_array -> parse_array -> ...                (array nesting)
 parse_inline_table -> parse_keyval -> parse_inline_table -> ...  (inline-table nesting)
 ```
 
-This is exactly the dedup failure mode the primary report flags as untested, and now it has been
-tested. Top-N-frame hashing over-counts for a stack-overflow class of bug, because the crash site is
-decided by allocator and scheduler timing rather than by the root cause, so four samples of one
-overflow can legitimately hash to four different signatures. Iteration 3 caught this on its own,
-noting in its refinement reasoning that *"unique_crash_signatures rose from 3 to 4, and it's the same
-stack-overflow bug family"*, then correctly stopped spending budget re-finding it and redirected
-toward acceptance rate. The honest count is **one confirmed root cause**, unbounded parser recursion,
-reachable by at least two distinct code paths, reported as four raw signatures. All four reproducers
-were re-verified standalone against the pinned build and crash deterministically.
+The primary report admitted that my crash-grouping method had never been tested on a real crash,
+only a toy one. Here it finally was, and it exposed a real weakness. My method groups crashes by
+hashing the last few stack frames, but for a stack-overflow bug those frames depend on timing, not
+on what actually caused the crash, so one real bug can show up as several different-looking
+signatures. The loop caught this on its own in iteration 3, noting that the signature count had gone
+from 3 to 4 but calling it "the same stack-overflow bug family," and correctly stopped spending
+budget trying to re-find it. So the honest count is **one confirmed bug**: unbounded recursion,
+reachable through at least two code paths, that showed up as four raw signatures. I re-ran all four
+saved crash inputs by hand against the pinned build, and each one crashes the same way every time.
 
-### Large reproducers are diagnostic, not a pipeline defect
+### The reproducers are large, and that's expected, not a flaw
 
-Three of the four reproducers carry `minimized: NO, crash too rare to re-reach` and run 53 to 137 KB
-each. That follows directly from the boundary instability above. Because the exact crashing depth
-shifts by roughly a thousand levels between invocations, the shrinker tries a smaller candidate, that
-candidate happens not to crash on that particular run, and the shrinker declines to report a
-reproducer it couldn't re-trigger. It keeps the original large input instead of publishing a false
-minimization. That's the shrinker behaving correctly against a genuinely flaky target, not a bug in
-`campaign.minimize`.
+Three of the four saved crash inputs are marked as not fully minimized, and range from 53 to 137 KB.
+That follows directly from the point above: because the exact crash depth shifts by roughly a
+thousand levels from one run to the next, the shrinker's smaller test candidates sometimes don't crash
+at all. Rather than report a smaller input that might not actually reproduce the bug, the shrinker
+correctly keeps the original, larger one. That's the right behavior for a target whose crash point
+genuinely moves around, not a bug in the minimizer.
 
-### How the generator evolved
+### How the generator changed over five rounds
 
-| Iteration | Acceptance | Max depth | Crashes | What drove the change |
+| Iteration | Acceptance | Max depth | Crashes | What changed |
 |---|---|---|---|---|
-| 0 | 6.2% | 25,704 | 0 | seed from grammar + measured gaps |
-| 1 | 43.0% | 33,701 | 3 | isolated deep nesting out of ordinary documents |
-| 2 | 39.4% | 31,381 | 4 | found the crash family, reduced deep-stress weight |
-| 3 | 28.8% | 33,347 | 1 (re-hit) | recognized one bug family, redirected to acceptance |
-| 4 | 48.0% | 21,594 | 0 (re-hit) | byte-level string content, acceptance recovery |
+| 0 | 6.2% | 25,704 | 0 | first version, seeded from the grammar and measured gaps |
+| 1 | 43.0% | 33,701 | 3 | moved deep nesting into its own strategy |
+| 2 | 39.4% | 31,381 | 4 | found the crash, then reduced how aggressively it nested |
+| 3 | 28.8% | 33,347 | 1 (re-hit) | recognized it was one bug family, shifted focus to acceptance |
+| 4 | 48.0% | 21,594 | 0 (re-hit) | worked on string content and recovering acceptance rate |
 
-Iteration 0's 6.2% acceptance is the textbook version of the failure the loop exists to catch. The
-generator put an uncapped-depth nested draw inside *every* ordinary document, so roughly 40% of
-otherwise-valid documents got dragged down by one runaway field. This is the "correcting a generator
-that was mostly being rejected" case the assignment calls out, and it happened here rather than on the
-JSON target. Iteration 1 diagnosed it from the acceptance number alone, moved deep nesting into its
-own dedicated strategy instead of contaminating every document, and acceptance jumped to 43% in a
-single round.
+Iteration 0's 6.2% acceptance rate is a textbook example of the exact failure this whole approach is
+meant to catch. The first generator added an unlimited nesting draw inside every single document, so
+roughly 40% of otherwise normal documents got dragged down and rejected because of one runaway field.
+This is the kind of "generator that's mostly getting rejected" case the assignment specifically asks
+about, and it happened here rather than on the JSON side. From the acceptance number alone, iteration 1
+figured out the problem, gave deep nesting its own separate strategy instead of mixing it into every
+document, and acceptance jumped to 43% in one round.
 
-From there the loop behaved the way I'd hoped. Iteration 2 found the crash family and immediately
-reduced deep-stress weight rather than escalating it, which is the right instinct once a bug is
-already reproducible. Iterations 3 and 4 spent the remaining budget on acceptance rate and byte-level
-string content, following the target-specific note in `ADAPTATIONS.md` that tomlc99's numeric handling
-is thorough and not worth the budget the JSON generator spent there.
+After that, the loop did what I'd hoped it would. Iteration 2 found the crash and immediately backed
+off how hard it pushed nesting, which is the right move once a bug is already reproducible. Iterations
+3 and 4 spent the rest of the budget improving acceptance and testing string content at the byte
+level, following the note in `ADAPTATIONS.md` that tomlc99 already handles numbers carefully, so that
+wasn't worth spending more budget on.
 
 ## Challenges specific to this target
 
-**A flaky crash boundary makes "found the bug" a probabilistic claim.** parson's nesting wall was exact
-to the input every single time. tomlc99's crash depends on process stack layout, so "at depth X" is a
-fact about one run, not about the bug. The pipeline handles this correctly, verifying before reporting
-and declining to over-minimize, but it changes what the evidence means.
+**A crash point that moves makes "found the bug" a probability, not a fact.** parson's nesting limit
+was exact and identical every time I tested it. tomlc99's crash depends on how the stack happens to be
+laid out on a given run, so saying "it crashes at depth X" is only true for that one run, not a fixed
+property of the bug. The pipeline handles this correctly, since it verifies before reporting and
+refuses to over-minimize, but it does change what the evidence actually proves.
 
-**Dedup over-splitting is now demonstrated rather than hypothetical.** I deliberately did not
-implement a fix, because re-normalizing after already knowing the answer would be circular. The honest
-fix for a future iteration is a secondary grouping pass keyed on the sanitizer error class plus
-whether the top frames are dominated by a single repeated function, which would collapse all four of
-these into one reported bug automatically.
+**My crash-grouping method really does over-count, and now I have proof.** I deliberately didn't fix
+this here, because adjusting the grouping logic after already knowing the answer would be circular
+reasoning. The honest fix for later would be a second grouping pass that also checks whether the
+sanitizer error type matches and whether one function dominates the stack, which would correctly merge
+all four signatures into one.
 
-**Cost ran higher than JSON's**, $2.76 against $0.86, almost entirely from iteration 2's single $0.72
-call. That call carried a 157K-token input, because the previous iteration's full strategy code plus
-several large first-seen crash inputs all went back into the feedback prompt verbatim. A future
-version should truncate or summarize oversized `first_input` values before they re-enter context.
+**This run cost more than the JSON one**, $2.76 versus $0.86, almost entirely from one $0.72 call in
+iteration 2, whose 157,000-token prompt carried the previous iteration's full strategy code plus
+several large crash inputs. A future version should shorten those before feeding them back in.
 
 *Artifacts under `toml-tomlc99/`: `grammar/`, `target/`, `strategies/`, `logs/`, `crashes/`.*
