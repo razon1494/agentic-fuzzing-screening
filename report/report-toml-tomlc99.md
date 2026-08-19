@@ -86,7 +86,10 @@ roughly 40% of otherwise normal documents got dragged down and rejected because 
 This is the kind of "generator that's mostly getting rejected" case the assignment specifically asks
 about, and it happened here rather than on the JSON side. From the acceptance number alone, iteration 1
 figured out the problem, gave deep nesting its own separate strategy instead of mixing it into every
-document, and acceptance jumped to 43% in one round.
+document, and acceptance jumped to 43% in one round. That was more literally "alone" than I knew at
+the time. Reviewing the code after the run, I found the harness was discarding tomlc99's error
+messages, so the model never saw a single parser rejection for this target and had nothing but the
+acceptance rate to reason from.
 
 After that, the loop did what I'd hoped it would. Iteration 2 found the crash and immediately backed
 off how hard it pushed nesting, since a bug that's already reproducible doesn't need more pressure
