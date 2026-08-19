@@ -5,9 +5,12 @@ same `fuzzer/` code, with no changes needed to support it. The design details (h
 apart from valid rejections, the proxy signal, the two-pass testing approach, how duplicate crashes
 are grouped) are the same as in the primary report and aren't repeated here.
 
-**Target:** [tomlc99](https://github.com/cktan/tomlc99) @ `29076df`. **Grammar:** grammars-v4
-`toml/{TomlParser,TomlLexer}.g4` @ `e1c222f`. **Result:** 5 iterations, 2,500 inputs, **4 crash
-signatures, 1 confirmed root cause**, $2.76 of a $5 budget.
+**Target:** [tomlc99](https://github.com/cktan/tomlc99) @ `29076df`.
+
+**Grammar:** grammars-v4 `toml/{TomlParser,TomlLexer}.g4` @ `e1c222f`.
+
+**Result:** 5 iterations, 2,500 inputs, **4 crash signatures, 1 confirmed root cause**, $2.76 of a $5
+budget.
 
 ## Why I added a second target
 
@@ -22,10 +25,10 @@ produced a real bug.
 
 ### A real bug, found twice
 
-Before running the agentic loop, I tested the library by hand and found something important. `toml.c`
-has no limit on how deeply it will nest arrays or tables. parson, by contrast, has an explicit cap
-(`MAX_NESTING 2048`) and rejects anything past it cleanly. tomlc99 has no such check; it just keeps
-recursing until the program crashes.
+Before running the agentic loop, I tested the library by hand and found `toml.c` has no limit on how
+deeply it will nest arrays or tables. parson, by contrast, has an explicit cap (`MAX_NESTING 2048`)
+and rejects anything past it cleanly. tomlc99 has no such check. It just keeps recursing until the
+program crashes.
 
 I built an input nested 50,000 levels deep, and it overflowed the stack. The exact point where it
 breaks isn't fixed. It falls somewhere between roughly 23,000 and 27,000, depending on the shape of
@@ -33,8 +36,8 @@ the input and small differences between runs (`grammar/toml-tomlc99/ADAPTATIONS.
 
 I gave the loop this finding as a starting point, and it went on to generate its own deeply nested
 inputs that hit the same crash on its own, using its own strategies. That's a stronger result than
-finding the bug by hand. It shows the depth signal actually leads the loop toward the bug, not just
-that the bug happened to exist.
+finding the bug by hand. It shows the depth signal leads the loop toward the bug, not just that the
+bug happened to exist.
 
 ### Four signatures, one bug
 
@@ -50,24 +53,22 @@ parse_array -> parse_array -> parse_array -> ...                (array nesting)
 parse_inline_table -> parse_keyval -> parse_inline_table -> ...  (inline-table nesting)
 ```
 
-The primary report admitted that my crash-grouping method had never been tested on a real crash,
-only a toy one. Here it finally was, and it exposed a real weakness. My method groups crashes by
-hashing the last few stack frames, but for a stack-overflow bug those frames depend on timing, not
-on what actually caused the crash, so one real bug can show up as several different-looking
-signatures. The loop caught this on its own in iteration 3, noting that the signature count had gone
-from 3 to 4 but calling it "the same stack-overflow bug family," and correctly stopped spending
-budget trying to re-find it. So the honest count is **one confirmed bug**: unbounded recursion,
-reachable through at least two code paths, that showed up as four raw signatures. I re-ran all four
-saved crash inputs by hand against the pinned build, and each one crashes the same way every time.
+The primary report admitted that my crash-grouping method had never been tested on a real crash, only
+a toy one. Here it finally was, and it exposed a real weakness. My method groups crashes by hashing
+the last few stack frames, but for a stack-overflow bug those frames depend on timing, not on what
+caused the crash, so one real bug can show up as several different-looking signatures. The loop caught
+this on its own in iteration 3, noting that the signature count had gone from 3 to 4 but calling it
+"the same stack-overflow bug family," and correctly stopped spending budget trying to re-find it. So,
+the honest count is **one confirmed bug**: unbounded recursion, reachable through at least two code
+paths, that showed up as four raw signatures. I re-ran all four saved crash inputs by hand against the
+pinned build, and each one crashes the same way every time.
 
 ### The reproducers are large, and that's expected, not a flaw
 
-Three of the four saved crash inputs are marked as not fully minimized, and range from 53 to 137 KB.
-That follows directly from the point above: because the exact crash depth shifts by roughly a
-thousand levels from one run to the next, the shrinker's smaller test candidates sometimes don't crash
-at all. Rather than report a smaller input that might not actually reproduce the bug, the shrinker
-correctly keeps the original, larger one. That's the right behavior for a target whose crash point
-genuinely moves around, not a bug in the minimizer.
+Three of the four saved crash inputs are not fully minimized and range from 53 to 137 KB, because the
+exact crash depth shifts by roughly a thousand levels from one run to the next, the shrinker's smaller
+test candidates sometimes don't crash at all. Rather than report a smaller input that might not
+actually reproduce the bug, the shrinker correctly keeps the original, larger one.
 
 ### How the generator changed over five rounds
 
@@ -88,10 +89,10 @@ figured out the problem, gave deep nesting its own separate strategy instead of 
 document, and acceptance jumped to 43% in one round.
 
 After that, the loop did what I'd hoped it would. Iteration 2 found the crash and immediately backed
-off how hard it pushed nesting, which is the right move once a bug is already reproducible. Iterations
-3 and 4 spent the rest of the budget improving acceptance and testing string content at the byte
-level, following the note in `ADAPTATIONS.md` that tomlc99 already handles numbers carefully, so that
-wasn't worth spending more budget on.
+off how hard it pushed nesting, since a bug that's already reproducible doesn't need more pressure
+behind it. Iterations 3 and 4 spent the rest of the budget improving acceptance and testing string
+content at the byte level, following the note in `ADAPTATIONS.md` that tomlc99 already handles numbers
+carefully, so that wasn't worth spending more budget on.
 
 ## Challenges specific to this target
 
@@ -101,11 +102,11 @@ laid out on a given run, so saying "it crashes at depth X" is only true for that
 property of the bug. The pipeline handles this correctly, since it verifies before reporting and
 refuses to over-minimize, but it does change what the evidence actually proves.
 
-**My crash-grouping method really does over-count, and now I have proof.** I deliberately didn't fix
-this here, because adjusting the grouping logic after already knowing the answer would be circular
-reasoning. The honest fix for later would be a second grouping pass that also checks whether the
-sanitizer error type matches and whether one function dominates the stack, which would correctly merge
-all four signatures into one.
+**The crash-grouping method really does overcount.** I deliberately didn't fix this here, because
+adjusting the grouping logic after already knowing the answer would be circular reasoning. The honest
+fix for later would be a second grouping pass that also checks whether the sanitizer error type
+matches and whether one function dominates the stack, which would correctly merge all four signatures
+into one.
 
 **This run cost more than the JSON one**, $2.76 versus $0.86, almost entirely from one $0.72 call in
 iteration 2, whose 157,000-token prompt carried the previous iteration's full strategy code plus
