@@ -6,9 +6,9 @@ of a $5 budget.
 
 ## The problem
 
-Fuzzing a parser is easy to do badly. Throw random bytes at a JSON library and nearly every input dies
-in the first few characters, so the tokenizer gets tested thousands of times and the real parser
-almost never does. The usual fix is to generate inputs already shaped like the format, which is what
+Fuzzing a parser is easy to do badly. Throw random bytes at a JSON library and nearly every input gets
+crushed in the first few characters, so the tokenizer gets tested thousands of times, and the real
+parser almost never does. The usual fix is to generate inputs already shaped like the format, which is what
 a formal grammar gives you for free.
 
 In this assignment, I wasn't allowed to write that generator myself. An LLM had to read the grammar
