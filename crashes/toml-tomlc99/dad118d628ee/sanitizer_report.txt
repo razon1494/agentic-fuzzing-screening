@@ -1,3 +1,8 @@
+# Sanitizer output from the FIRST input that hit this signature
+# during the survey pass. If `minimized: yes` below, this is not
+# the same input as input.bin -- see verification_stderr.txt for
+# the report belonging to input.bin itself.
+
 AddressSanitizer:DEADLYSIGNAL
 =================================================================
 ==2632==ERROR: AddressSanitizer: stack-overflow on address 0x7ffd472ccfb8 (pc 0x7f55913fe1b7 bp 0x7ffd472cd830 sp 0x7ffd472ccfc0 T0)

@@ -58,7 +58,7 @@ def main() -> int:
 
     if best := outcome.best:
         _write_final_strategy(target, best)
-        written = _write_crashes(runner, target, best)
+        written = _write_crashes(runner, target, outcome, best)
         print(f"\ncrash artifacts written: {written}")
     else:
         print("\nno usable iteration -- nothing to triage")
@@ -98,22 +98,29 @@ def _write_final_strategy(target: TargetConfig, best: Iteration) -> None:
     print(f"\nfinal strategy: iteration {best.index} -> strategies/{target.slug}/final.py")
 
 
-def _write_crashes(runner: HarnessRunner, target: TargetConfig, best: Iteration) -> int:
+def _write_crashes(
+    runner: HarnessRunner,
+    target: TargetConfig,
+    outcome: LoopResult,
+    best: Iteration,
+) -> int:
     """One directory per unique signature, verified before it's kept.
+
+    Covers every signature the whole run found, not just the best iteration's,
+    so a bug that only ever appeared in an earlier round still gets reported.
 
     A minimized input that doesn't reproduce standalone isn't a real
     reproducer, so the re-run's verdict gets recorded either way instead of
     just assumed.
     """
-    result = best.result
-    if result is None or not result.crashes:
+    if not outcome.all_crashes:
         _write_none_found(target, best)
         return 0
 
     target.crashes_dir.mkdir(parents=True, exist_ok=True)
     written = 0
 
-    for signature_id, record in result.crashes.items():
+    for signature_id, record in outcome.all_crashes.items():
         directory = target.crashes_dir / signature_id
         directory.mkdir(exist_ok=True)
 
@@ -123,9 +130,28 @@ def _write_crashes(runner: HarnessRunner, target: TargetConfig, best: Iteration)
             else record.first_input
         )
         (directory / "input.bin").write_bytes(reproducer)
-        (directory / "sanitizer_report.txt").write_text(record.stderr, encoding="utf-8")
 
         verified = runner.run(reproducer)
+
+        # Two different inputs can be involved: the survey input that first hit
+        # the signature, and the (possibly shrunk) one saved as input.bin. Keep
+        # both reports and say which is which, rather than filing the survey
+        # report next to a reproducer it was not produced by.
+        (directory / "sanitizer_report.txt").write_text(
+            "# Sanitizer output from the FIRST input that hit this signature\n"
+            "# during the survey pass. If `minimized: yes` below, this is not\n"
+            "# the same input as input.bin -- see verification_stderr.txt for\n"
+            "# the report belonging to input.bin itself.\n\n" + record.stderr,
+            encoding="utf-8",
+        )
+        (directory / "verification_stderr.txt").write_text(
+            f"# Standalone re-run of input.bin against the pinned build.\n"
+            f"# outcome={verified.outcome.value} exit={verified.exit_code} "
+            f"signal={verified.signal_name}\n\n" + verified.stderr,
+            encoding="utf-8",
+        )
+
+        origin = outcome.crash_origin.get(signature_id, best.index)
         (directory / "notes.md").write_text(
             "\n".join(
                 [
@@ -136,7 +162,7 @@ def _write_crashes(runner: HarnessRunner, target: TargetConfig, best: Iteration)
                     f"- hits during the run: {record.hit_count}",
                     f"- minimized: {'yes' if record.minimized is not None else 'NO -- crash too rare to re-reach; first-seen input kept instead'}",
                     f"- reproducer size: {len(reproducer)} bytes",
-                    f"- found by: strategies/{target.slug}/iteration_{best.index}.py",
+                    f"- first found by: strategies/{target.slug}/iteration_{origin}.py",
                     "",
                     "## Standalone verification",
                     "",
@@ -146,6 +172,10 @@ def _write_crashes(runner: HarnessRunner, target: TargetConfig, best: Iteration)
                     "Reproduces deterministically."
                     if verified.outcome.is_bug
                     else "**Did not reproduce.** Treat this signature as unconfirmed.",
+                    "",
+                    "`sanitizer_report.txt` is the survey-pass report for the first input"
+                    " that hit this signature; `verification_stderr.txt` is the report for"
+                    " `input.bin` as submitted.",
                     "",
                 ]
             ),

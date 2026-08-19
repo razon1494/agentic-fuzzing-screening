@@ -24,7 +24,7 @@ from pathlib import Path
 from hypothesis import strategies as st
 from hypothesis.errors import NonInteractiveExampleWarning
 
-from ..campaign import CampaignResult, minimize_all, run_campaign
+from ..campaign import CampaignResult, CrashRecord, minimize_all, run_campaign
 from ..runner import HarnessRunner
 from .client import BudgetExhausted, StrategyAuthor
 from .prompts import build_system_blocks, refine_prompt, seed_prompt
@@ -70,10 +70,21 @@ class LoopResult:
     total_cost_usd: float = 0.0
     total_tokens: int = 0
     stop_reason: str = "iteration cap"
+    all_crashes: dict[str, CrashRecord] = field(default_factory=dict)
+    """Every unique signature from the whole run, not just the best iteration's.
+
+    Which iteration a bug turned up in is an accident of sampling, so the
+    reported artifacts are the union across the run."""
+    crash_origin: dict[str, int] = field(default_factory=dict)
+    """signature_id -> index of the iteration that first hit it."""
 
     @property
     def best(self) -> Iteration | None:
-        """The iteration that found the most distinct bugs, ties going to later."""
+        """The iteration that found the most distinct bugs, ties going to later.
+
+        This picks the *strategy* to ship as final.py. Crash artifacts come
+        from ``all_crashes`` instead, so a bug seen only in an earlier round
+        still gets reported."""
         usable = [it for it in self.iterations if it.usable]
         if not usable:
             return None
@@ -101,6 +112,7 @@ def run_loop(
     outcome = LoopResult()
     current_code = ""
     feedback = ""
+    found_so_far: dict[str, CrashRecord] = {}
 
     for index in range(max_iterations):
         prompt = seed_prompt() if index == 0 else refine_prompt(current_code, feedback)
@@ -137,10 +149,28 @@ def run_loop(
             print(f"  strategy unusable: {str(broken).splitlines()[0]}")
             continue
 
-        result = run_campaign(strategy, runner, max_examples=max_examples)
+        result = run_campaign(
+            strategy,
+            runner,
+            max_examples=max_examples,
+            per_input_log=logs_dir / f"iteration_{index}_inputs.jsonl",
+        )
         minimize_all(strategy, runner, result, max_examples=max_examples)
         iteration.result = result
-        feedback = summarize_for_llm(result, target)
+
+        # Crashes accumulate across iterations. Passing only this round's
+        # dictionary would label a subset "found so far", and would let a bug
+        # found in an earlier iteration drop out of the feedback entirely.
+        for signature_id, record in result.crashes.items():
+            if (carried := found_so_far.get(signature_id)) is None:
+                found_so_far[signature_id] = record
+                outcome.crash_origin[signature_id] = index
+                continue
+            carried.hit_count += record.hit_count
+            if carried.minimized is None:
+                carried.minimized = record.minimized
+
+        feedback = summarize_for_llm(result, target, found_so_far)
 
         outcome.iterations.append(iteration)
         _write_log(logs_dir, iteration, feedback)
@@ -148,13 +178,21 @@ def run_loop(
 
     outcome.total_cost_usd = author.spent_usd
     outcome.total_tokens = author.total_tokens
+    outcome.all_crashes = found_so_far
     return outcome
 
 
-def summarize_for_llm(result: CampaignResult, target: TargetConfig) -> str:
-    """Compact digest the model refines against. Kept small -- raw per-input
-    logs would just cost tokens without telling it anything the aggregate
-    doesn't already say."""
+def summarize_for_llm(
+    result: CampaignResult,
+    target: TargetConfig,
+    crashes_so_far: dict[str, CrashRecord] | None = None,
+) -> str:
+    """Compact digest the model refines against. Kept small -- the raw
+    per-input log is written to disk for auditing, but feeding it to the model
+    would cost tokens without telling it anything the aggregate doesn't say.
+
+    ``crashes_so_far`` is the running union across iterations; without it the
+    "found so far" list would silently mean "found this round"."""
     missing = sorted(target.expected_productions - result.productions_seen)
     unexpected = sorted(result.productions_seen - target.expected_productions)
 
@@ -171,9 +209,10 @@ def summarize_for_llm(result: CampaignResult, target: TargetConfig) -> str:
             "(use the grammar's own rule names so coverage lines up)"
         )
 
-    if result.crashes:
+    known = crashes_so_far if crashes_so_far is not None else result.crashes
+    if known:
         lines.append("\ncrash signatures found so far (do not re-target these):")
-        for record in result.crashes.values():
+        for record in known.values():
             reproducer = record.minimized if record.minimized is not None else "<not reproduced>"
             lines.append(
                 f"  [{record.signature.signature_id}] {record.signature.bug_class} "

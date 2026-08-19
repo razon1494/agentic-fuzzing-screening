@@ -99,6 +99,11 @@ int main(void) {
     free(input);
 
     if (parsed == NULL) {
+        /* tomlc99 explains *why* it refused, which parson's API never does.
+         * The loop samples these (campaign.MAX_REJECTION_SAMPLES) to show the
+         * model what it is getting wrong, so dropping the message here
+         * silently starves one of the feedback channels. */
+        fprintf(stderr, "%s\n", errbuf);
         return EXIT_REJECT;
     }
 

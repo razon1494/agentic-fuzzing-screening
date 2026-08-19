@@ -1,0 +1,10 @@
+# Standalone re-run of input.bin against the pinned build.
+# outcome=crash exit=None signal=SIGABRT
+
+AddressSanitizer:DEADLYSIGNAL
+=================================================================
+==346==ERROR: AddressSanitizer: stack-overflow on address 0x7ffd63fa6ff8 (pc 0x7f3014b3a562 bp 0x7ffd63fa7010 sp 0x7ffd63fa7000 T0)
+    <empty stack>
+
+SUMMARY: AddressSanitizer: stack-overflow
+==346==ABORTING

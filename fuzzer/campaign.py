@@ -15,8 +15,12 @@ input we happened to see (Step 5.4).
 
 from __future__ import annotations
 
+import hashlib
+import json
+import time
 from collections import Counter
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from hypothesis import HealthCheck, Phase, given, settings
 from hypothesis import strategies as st
@@ -29,9 +33,23 @@ from .triage import CrashSignature, signature_for
 MAX_EXAMPLES = 500
 """Per-iteration example cap from the assignment Constraints."""
 
+MAX_WALL_CLOCK_S = 600.0
+"""Ten-minute backstop from the Constraints section.
+
+500 inputs through a small C library finish in well under a minute, so this
+should never fire. It exists for the pathological case the assignment names:
+a strategy emitting inputs so large that process spawning dominates. Without
+it the ceiling is 500 x the 5s per-input timeout, i.e. about 42 minutes.
+"""
+
 MAX_REJECTION_SAMPLES = 25
 """Enough rejection messages to show the LLM *why* inputs are being refused,
 few enough to keep the refinement prompt cheap."""
+
+PER_INPUT_LOG_PREVIEW = 200
+"""Bytes of each input kept in the per-input log. Whole inputs would bloat the
+log (crash reproducers here reach 137 KB) without adding much; the digest
+identifies each one exactly, and crashes are saved in full elsewhere."""
 
 _SETTINGS = dict(
     deadline=None,  # a subprocess round-trip dwarfs Hypothesis's default deadline
@@ -65,6 +83,11 @@ class CampaignResult:
     depth_histogram: Counter = field(default_factory=Counter)
     crashes: dict[str, CrashRecord] = field(default_factory=dict)
     rejection_messages: list[str] = field(default_factory=list)
+    elapsed_s: float = 0.0
+    deadline_hit: bool = False
+    """True if MAX_WALL_CLOCK_S stopped the run before ``max_examples``.
+    Worth surfacing rather than hiding: a truncated campaign means the
+    iteration's numbers cover fewer inputs than the others."""
 
     @property
     def acceptance_rate(self) -> float:
@@ -92,32 +115,60 @@ class CampaignResult:
         depths = ", ".join(
             f"d{depth}:{n}" for depth, n in sorted(self.depth_histogram.items())
         )
-        return "\n".join(
-            [
-                f"examples={self.total}  {counts}",
-                f"acceptance_rate={self.acceptance_rate:.1%}",
-                f"unique_crash_signatures={self.bug_count}",
-                f"productions_exercised={sorted(self.productions_seen)}",
-                f"depth_histogram={depths or 'none'}",
-            ]
-        )
+        lines = [
+            f"examples={self.total}  {counts}",
+            f"acceptance_rate={self.acceptance_rate:.1%}",
+            f"unique_crash_signatures={self.bug_count}",
+            f"productions_exercised={sorted(self.productions_seen)}",
+            f"depth_histogram={depths or 'none'}",
+        ]
+        if self.deadline_hit:
+            lines.append(
+                f"WALL CLOCK CAP HIT after {self.elapsed_s:.0f}s -- run truncated "
+                "below max_examples; the strategy is generating pathologically "
+                "expensive inputs"
+            )
+        return "\n".join(lines)
 
 
 def run_campaign(
     text_strategy: st.SearchStrategy[str],
     runner: HarnessRunner,
     max_examples: int = MAX_EXAMPLES,
+    max_wall_clock_s: float = MAX_WALL_CLOCK_S,
+    per_input_log: Path | None = None,
 ) -> CampaignResult:
-    """Survey pass: run the strategy through the harness, observing everything."""
+    """Survey pass: run the strategy through the harness, observing everything.
+
+    ``per_input_log`` writes one JSON object per input (Step 3's per-input
+    record: outcome, exit code, and either the sanitizer report or the parser's
+    own rejection message). It is the raw material the aggregate summary is
+    condensed from, kept on disk so a run can be audited after the fact.
+    """
     outcome_counts: Counter = Counter()
     depth_histogram: Counter = Counter()
     productions: set[str] = set()
     crashes: dict[str, CrashRecord] = {}
     rejections: list[str] = []
 
+    started = time.monotonic()
+    state = {"deadline_hit": False, "index": 0}
+
+    log_handle = None
+    if per_input_log is not None:
+        per_input_log.parent.mkdir(parents=True, exist_ok=True)
+        log_handle = per_input_log.open("w", encoding="utf-8")
+
     @settings(max_examples=max_examples, phases=[Phase.generate], **_SETTINGS)
     @given(instrumented(text_strategy))
     def survey(generated: GeneratedInput) -> None:
+        # Hypothesis has no whole-run wall clock, so past the cap the remaining
+        # examples become no-ops rather than being run. Skipped inputs are not
+        # counted, which is why `total` can come in under max_examples.
+        if state["deadline_hit"] or time.monotonic() - started > max_wall_clock_s:
+            state["deadline_hit"] = True
+            return
+
         result = runner.run(generated.encode())
 
         outcome_counts[result.outcome.value] += 1
@@ -133,7 +184,17 @@ def run_campaign(
             if message := _first_line(result.stderr):
                 rejections.append(message)
 
-    survey()
+        if log_handle is not None:
+            log_handle.write(
+                json.dumps(_per_input_record(state["index"], generated, result)) + "\n"
+            )
+            state["index"] += 1
+
+    try:
+        survey()
+    finally:
+        if log_handle is not None:
+            log_handle.close()
 
     return CampaignResult(
         total=sum(outcome_counts.values()),
@@ -142,7 +203,35 @@ def run_campaign(
         depth_histogram=depth_histogram,
         crashes=crashes,
         rejection_messages=rejections,
+        elapsed_s=time.monotonic() - started,
+        deadline_hit=state["deadline_hit"],
     )
+
+
+def _per_input_record(
+    index: int, generated: GeneratedInput, result: RunResult
+) -> dict:
+    """One input's outcome, in the shape Step 3 asks to log."""
+    raw = result.input_bytes
+    record = {
+        "i": index,
+        "outcome": result.outcome.value,
+        "crashed": result.outcome.is_bug,
+        "exit_code": result.exit_code,
+        "signal": result.signal_name,
+        "ms": round(result.duration_s * 1000, 1),
+        "depth": generated.max_depth,
+        "bytes": len(raw),
+        "sha1": hashlib.sha1(raw).hexdigest(),
+        "preview": raw[:PER_INPUT_LOG_PREVIEW].decode("utf-8", errors="replace"),
+    }
+    # Sanitizer output when it crashed, the parser's own complaint when it
+    # did not -- the two halves Step 3 distinguishes between.
+    if result.outcome.is_bug:
+        record["sanitizer"] = result.stderr
+    else:
+        record["error"] = _first_line(result.stderr)
+    return record
 
 
 def minimize(
