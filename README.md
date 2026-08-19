@@ -50,6 +50,14 @@ alone) and acceptance held at 40–59%. Full analysis: [`report/report.md`](repo
 no depth cap), $2.76 of the $5.00 budget. All four reproducers re-verified standalone. Full analysis,
 including why 4 signatures collapse to 1 real bug: [`report/report-toml-tomlc99.md`](report/report-toml-tomlc99.md).
 
+**Post-run review.** Reviewing the code after both runs finished turned up five gaps against the
+spec, all now fixed: the TOML harness was discarding tomlc99's rejection messages, so that feedback
+channel reached the model empty; there was no 10-minute wall-clock backstop; per-input logging was
+aggregated away; crash artifacts paired a minimized input with the *survey* input's sanitizer report;
+and crashes were not accumulated across iterations. None of these changes a number reported above and
+the loop was not re-run, but the code now differs from what produced these logs, so re-running would
+give the model strictly more to work with than the committed logs show.
+
 ## Architecture
 
 Bottom-up, target-independent up to the harness boundary:
@@ -157,12 +165,13 @@ directory.
 ├── run_agentic_loop.py            Steps 4-5 entrypoint — takes --target
 │
 ├── logs/
-│   ├── json-parson/                   iteration_0..4.md
-│   └── toml-tomlc99/                  iteration_0..N.md
+│   ├── json-parson/                   iteration_0..4.md  (+ iteration_N_inputs.jsonl on re-run)
+│   └── toml-tomlc99/                  iteration_0..N.md  (+ iteration_N_inputs.jsonl on re-run)
 │
 ├── crashes/
 │   ├── json-parson/                   NONE_FOUND.md
-│   └── toml-tomlc99/                  <signature_id>/{input.bin, sanitizer_report.txt, notes.md}
+│   └── toml-tomlc99/                  <signature_id>/{input.bin, sanitizer_report.txt,
+│                                                      verification_stderr.txt, notes.md}
 │
 └── report/
     ├── report.md                      Step 6 — primary two-page report (json-parson)
