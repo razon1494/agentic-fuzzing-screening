@@ -13,5 +13,8 @@ Dockerfile  text eol=lf
 Makefile    text eol=lf
 
 # Crash reproducers are exact bytes. Any normalization would corrupt them.
-crashes/**  binary
-*.bin       binary
+# Scoped to the reproducers themselves: marking all of crashes/** binary also
+# hid notes.md and the sanitizer reports from diffs, which are the files a
+# reviewer most wants to read.
+crashes/**/*.bin  binary
+*.bin             binary

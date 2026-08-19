@@ -2,7 +2,7 @@
 
 - signature: `dad118d628ee`
 - frames: strnlen@sanitizer_common_interceptors.inc <- STRNDUP@toml.c <- normalize_key@toml.c
-- hits during the run: 1
+- hits across the run (all iterations): 3
 - minimized: NO -- crash too rare to re-reach; first-seen input kept instead
 - reproducer size: 117933 bytes
 - first found by: strategies/toml-tomlc99/iteration_1.py

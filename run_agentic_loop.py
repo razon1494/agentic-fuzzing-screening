@@ -159,7 +159,7 @@ def _write_crashes(
                     "",
                     f"- signature: `{signature_id}`",
                     f"- frames: {' <- '.join(record.signature.frames) or '<none symbolized>'}",
-                    f"- hits during the run: {record.hit_count}",
+                    f"- hits across the run (all iterations): {record.hit_count}",
                     f"- minimized: {'yes' if record.minimized is not None else 'NO -- crash too rare to re-reach; first-seen input kept instead'}",
                     f"- reproducer size: {len(reproducer)} bytes",
                     f"- first found by: strategies/{target.slug}/iteration_{origin}.py",

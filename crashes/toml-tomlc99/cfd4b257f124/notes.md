@@ -2,7 +2,7 @@
 
 - signature: `cfd4b257f124`
 - frames: DlsymAlloc::UseImpl()@asan_malloc_linux.cpp <- malloc@asan_malloc_linux.cpp <- expand@toml.c
-- hits during the run: 1
+- hits across the run (all iterations): 3
 - minimized: NO -- crash too rare to re-reach; first-seen input kept instead
 - reproducer size: 53941 bytes
 - first found by: strategies/toml-tomlc99/iteration_1.py

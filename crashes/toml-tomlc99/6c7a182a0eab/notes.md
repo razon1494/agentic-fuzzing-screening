@@ -2,7 +2,7 @@
 
 - signature: `6c7a182a0eab`
 - frames: <none symbolized>
-- hits during the run: 1
+- hits across the run (all iterations): 1
 - minimized: yes
 - reproducer size: 136867 bytes
 - first found by: strategies/toml-tomlc99/iteration_2.py

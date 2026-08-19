@@ -61,7 +61,9 @@ this on its own in iteration 3, noting that the signature count had gone from 3 
 "the same stack-overflow bug family," and correctly stopped spending budget trying to re-find it. So,
 the honest count is **one confirmed bug**: unbounded recursion, reachable through at least two code
 paths, that showed up as four raw signatures. I re-ran all four saved crash inputs by hand against the
-pinned build, and each one crashes the same way every time.
+pinned build, five times each. All twenty runs crashed, but the signature itself is not stable: one
+byte-identical input hashed to four different IDs across those runs, including a fifth ID that never
+appeared during the campaign at all. The four signatures were never four behaviours.
 
 ### The reproducers are large, and that's expected, not a flaw
 
@@ -78,7 +80,7 @@ actually reproduce the bug, the shrinker correctly keeps the original, larger on
 | 1 | 43.0% | 33,701 | 3 | moved deep nesting into its own strategy |
 | 2 | 39.4% | 31,381 | 4 | found the crash, then reduced how aggressively it nested |
 | 3 | 28.8% | 33,347 | 1 (re-hit) | recognized it was one bug family, shifted focus to acceptance |
-| 4 | 48.0% | 21,594 | 0 (re-hit) | worked on string content and recovering acceptance rate |
+| 4 | 48.0% | 21,594 | 0 | worked on string content and recovering acceptance rate |
 
 Iteration 0's 6.2% acceptance rate is a textbook example of the exact failure this whole approach is
 meant to catch. The first generator added an unlimited nesting draw inside every single document, so

@@ -149,7 +149,7 @@ def refine_prompt(current_code: str, feedback: str) -> str:
     """
     return f"""\
 Here is the strategy you wrote last iteration, and what happened when it ran
-against the real parson build.
+against the real sanitizer build of the target library.
 
 # Current strategy
 

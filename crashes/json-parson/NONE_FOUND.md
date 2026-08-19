@@ -1,6 +1,6 @@
 # No crashes found
 
-Best iteration: 4 (`strategies/iteration_4.py`).
+Best iteration: 4 (`strategies/json-parson/iteration_4.py`).
 
 ```
 examples=500  accept=263, reject=237
