@@ -186,8 +186,3 @@ directory.
 
 Each target's loop is budgeted and logged independently — running both costs at most ~$10 combined,
 not shared.
-
-## Submission
-
-Repo will be shared with Prof. D'Amorim's GitHub account (`damorim`) once the checklist above is
-complete.
