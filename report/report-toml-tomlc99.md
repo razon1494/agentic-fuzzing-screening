@@ -65,6 +65,10 @@ pinned build, five times each. All twenty runs crashed, but the signature itself
 byte-identical input hashed to four different IDs across those runs, including a fifth ID that never
 appeared during the campaign at all. The four signatures were never four behaviors.
 
+This root cause is already known: [issue #95](https://github.com/cktan/tomlc99/issues/95) and
+[issue #97](https://github.com/cktan/tomlc99/issues/97) independently report the same recursion in
+`parse_array` and `parse_keyval`, stronger corroboration than a novel finding.
+
 ### The reproducers are large, and that's expected, not a flaw
 
 Three of the four saved crash inputs are not fully minimized and range from 53 to 137 KB, because the
